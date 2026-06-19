@@ -26,7 +26,7 @@ USERS = {"faisal": "faisal147", "shabana": "shabana123", "admin": "paichi786"}
 st.set_page_config(page_title="PAICHI TRADING PRO v8.8", layout="wide")
 st_autorefresh(interval=60000, key="auto_refresh")
 
-# --- 2. 🎨 PREMIUM DESIGN ---
+# --- 2. 🎨 PREMIUM DARK DESIGN (61170.jpg മാതൃകയിൽ) ---
 st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #0F2027, #203A43, #2C5364); color: #fff; }
@@ -36,10 +36,17 @@ st.markdown("""
     .purple-box { background: rgba(255, 255, 255, 0.05); padding: 20px; border-radius: 25px; border: 2px solid rgba(0, 255, 204, 0.3); text-align: center; margin-bottom: 20px; }
     h1, h2, h3, p, label { color: white !important; font-weight: bold !important; }
     .stDataFrame { background: white; border-radius: 10px; color: black; }
-    /* FullCalendar Custom Dark Design to match Upstox Style */
-    .fc { background: rgba(255,255,255,0.02); border-radius: 15px; padding: 10px; }
-    .fc-col-header-cell { background: rgba(0, 255, 204, 0.2); }
-    .fc-daygrid-day { min-height: 90px !important; }
+    
+    /* 61170.jpg-ൽ ഉള്ളതുപോലെയുള്ള ഡാർക്ക് കലണ്ടർ ഡിസൈൻ */
+    .fc { background: #13112c !important; border-radius: 10px; padding: 15px; border: 1px solid #ffffff30; }
+    .fc td, .fc th { border: 1px solid #ffffff40 !important; }
+    .fc-col-header-cell { background: #1f1a40 !important; color: #fff !important; }
+    .fc-daygrid-day-number { color: #fff !important; font-weight: bold; padding: 5px !important; }
+    .fc-daygrid-day { min-height: 95px !important; background: #0c0a1f !important; }
+    .fc-day-today { background: #25204e !important; }
+    
+    /* ബട്ടണുകൾ തിങ്ങിനിറയാതിരിക്കാൻ ചെറിയ മാർജിൻ */
+    .fc-event { margin-top: 4px !important; margin-bottom: 4px !important; padding: 2px 5px !important; font-size: 13px !important; font-weight: bold !important; border-radius: 4px !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -168,6 +175,7 @@ else:
             df.iloc[:, 2] = pd.to_numeric(df.iloc[:, 2], errors='coerce').fillna(0)
             df.iloc[:, 3] = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0)
             
+            # ഒരേ ദിവസത്തെ ഡാറ്റ ഒന്നിച്ച് കൂട്ടുന്നു
             daily_summary = df.groupby(df.columns[0]).agg({df.columns[2]: 'sum', df.columns[3]: 'sum'}).reset_index()
             
             calendar_events = []
@@ -176,20 +184,22 @@ else:
                 total_loss = float(row[df.columns[2]])
                 total_profit = float(row[df.columns[3]])
                 
-                # "Total:" ഒഴിവാക്കി വെറും തുക മാത്രം കാണിക്കുന്നു
-                if total_profit > 0:
+                # 💡 ഒരേ ദിവസത്തെ Net P&L കറക്റ്റ് ആയി കണക്കാക്കുന്നു (കുത്തിക്കിടക്കുന്നത് ഒഴിവാക്കാൻ)
+                net_day_pnl = total_profit - total_loss
+                
+                if net_day_pnl > 0:
                     calendar_events.append({
-                        "id": f"profit_{date_str}",
-                        "title": f" +₹{total_profit:,.0f}",
+                        "id": f"pnl_{date_str}",
+                        "title": f" +₹{net_day_pnl:,.0f}",
                         "start": date_str,
                         "backgroundColor": "#198754",
                         "borderColor": "#198754",
                         "textColor": "white"
                     })
-                if total_loss > 0:
+                elif net_day_pnl < 0:
                     calendar_events.append({
-                        "id": f"loss_{date_str}",
-                        "title": f" -₹{total_loss:,.0f}",
+                        "id": f"pnl_{date_str}",
+                        "title": f" -₹{abs(net_day_pnl):,.0f}",
                         "start": date_str,
                         "backgroundColor": "#dc3545",
                         "borderColor": "#dc3545",
@@ -209,11 +219,21 @@ else:
                 clicked_dt = pd.to_datetime(clicked_date)
                 
                 st.markdown("---")
-                st.subheader(f"📋 Trade Breakdown for {clicked_dt.strftime('%d %B %Y')}")
+                # 61170.jpg-ൽ ഉള്ളതുപോലെ ഭംഗിയുള്ള വലിയ ഹെഡിങ് സ്റ്റൈൽ
+                st.markdown(f"## 📋 Details for {clicked_dt.strftime('%d %B %Y')}")
                 
                 day_entries = df[df[df.columns[0]].dt.strftime('%Y-%m-%d') == clicked_date].copy()
                 
                 if not day_entries.empty:
+                    # 61170.jpg-ൽ ഉള്ളതുപോലെ Download ബട്ടൺ ഡിസൈൻ
+                    csv_data = day_entries.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Download This Day's Data",
+                        data=csv_data,
+                        file_name=f"Trading_{clicked_date}.csv",
+                        mime="text/csv"
+                    )
+                    
                     day_entries[df.columns[0]] = day_entries[df.columns[0]].dt.strftime('%d/%m/%Y')
                     show_df = day_entries[[df.columns[0], df.columns[1], df.columns[2], df.columns[3]]]
                     show_df.columns = ['Date', 'Script/Strike Price', 'Loss (Debit)', 'Profit (Credit)']
