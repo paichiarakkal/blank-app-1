@@ -91,7 +91,6 @@ def create_pdf(df):
         pdf.set_font("Arial", size=9)
         for _, row in df.iterrows():
             for col in cols:
-                # സ്പെഷ്യൽ കാരക്ടറുകൾ മൂലം ഉണ്ടാകുന്ന എററുകൾ ഒഴിവാക്കാൻ
                 val = str(row[col]).encode('ascii', 'ignore').decode('ascii')
                 pdf.cell(38, 10, txt=val[:20], border=1)
             pdf.ln()
@@ -164,11 +163,10 @@ else:
                         status_icon = "🟢" if "Profit" in ty else "🔴"
                         msg = f"{status_icon} *Paichi Trade Entry*\n📝 Script: {strike_price}\n💰 P&L: ₹{am} ({ty})\n👤 Trader: {curr_user}"
                         
-                        # WhatsApp മെസ്സേജ് ബാക്ക്ഗ്രൗണ്ടിൽ അയക്കുന്നു
                         threading.Thread(target=send_whatsapp_auto, args=(msg,)).start()
                         
                         st.success("Trade Logged Successfully! ✅")
-                        time.sleep(1) # Rerun ചെയ്യുന്നതിന് മുമ്പ് ത്രെഡ് റൺ ചെയ്യാൻ ചെറിയൊരു സമയം നൽകുന്നു
+                        time.sleep(1)
                         st.rerun()
                     else: 
                         st.error("വിവരങ്ങൾ പൂർണ്ണമായി നൽകുക!")
@@ -181,19 +179,26 @@ else:
             df = pd.read_csv(f"{CSV_URL}&r={random.randint(1,999)}")
             df.columns = df.columns.str.strip()
             
+            # തീയതികൾ ഒരേ ഫോർമാറ്റിലേക്ക് മാറ്റുന്നു
             df[df.columns[0]] = parse_mixed_dates(df[df.columns[0]])
             df = df.dropna(subset=[df.columns[0]])
+            
+            # ഗ്രൂപ്പിംഗ് കൃത്യമാക്കാൻ 'GroupDate' കോളം നിർമ്മിക്കുന്നു
+            df['GroupDate'] = df[df.columns[0]].dt.strftime('%Y-%m-%d')
             
             df.iloc[:, 2] = pd.to_numeric(df.iloc[:, 2], errors='coerce').fillna(0)
             df.iloc[:, 3] = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0)
             
-            daily_summary = df.groupby(df.columns[0]).agg({df.columns[2]: 'sum', df.columns[3]: 'sum'}).reset_index()
+            # പുതിയ കോളം വെച്ച് കൃത്യമായി ഗ്രൂപ്പ് ചെയ്ത് തുക കൂട്ടുന്നു
+            daily_summary = df.groupby('GroupDate').agg({df.columns[2]: 'sum', df.columns[3]: 'sum'}).reset_index()
             
             calendar_events = []
             for _, row in daily_summary.iterrows():
-                date_str = row[df.columns[0]].strftime('%Y-%m-%d')
+                date_str = row['GroupDate']
                 total_loss = float(row[df.columns[2]])
                 total_profit = float(row[df.columns[3]])
+                
+                # ഒരേ ദിവസത്തെ ശരിയായ Net P&L ഇവിടെ കണക്കാക്കുന്നു
                 net_day_pnl = total_profit - total_loss
                 
                 if net_day_pnl > 0:
@@ -230,10 +235,10 @@ else:
                 st.markdown("---")
                 st.markdown(f"## 📋 Details for {clicked_dt.strftime('%d %B %Y')}")
                 
-                day_entries = df[df[df.columns[0]].dt.strftime('%Y-%m-%d') == clicked_date].copy()
+                day_entries = df[df['GroupDate'] == clicked_date].copy()
                 
                 if not day_entries.empty:
-                    csv_data = day_entries.to_csv(index=False).encode('utf-8')
+                    csv_data = day_entries[[df.columns[0], df.columns[1], df.columns[2], df.columns[3]]].to_csv(index=False).encode('utf-8')
                     st.download_button(
                         label="📥 Download This Day's Data",
                         data=csv_data,
