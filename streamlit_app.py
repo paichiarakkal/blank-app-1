@@ -2,15 +2,13 @@ import streamlit as st
 import pandas as pd
 import requests
 import json
-from datetime import datetime
 import random
 import plotly.express as px
 from streamlit_autorefresh import st_autorefresh
 from fpdf import FPDF
-import io
 import urllib.parse
 import threading
-import re
+import time
 from streamlit_calendar import calendar
 
 # --- 1. CONFIG & SETTINGS ---
@@ -23,10 +21,10 @@ WA_API_KEY = "7463030"
 
 USERS = {"faisal": "faisal147", "shabana": "shabana123", "admin": "paichi786"}
 
-st.set_page_config(page_title="PAICHI TRADING PRO v8.8", layout="wide")
+st.set_page_config(page_title="PAICHI TRADING PRO v8.9", layout="wide")
 st_autorefresh(interval=60000, key="auto_refresh")
 
-# --- 2. 🎨 PREMIUM DARK DESIGN (61170.jpg മാതൃകയിൽ) ---
+# --- 2. 🎨 PREMIUM DARK DESIGN ---
 st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #0F2027, #203A43, #2C5364); color: #fff; }
@@ -37,15 +35,13 @@ st.markdown("""
     h1, h2, h3, p, label { color: white !important; font-weight: bold !important; }
     .stDataFrame { background: white; border-radius: 10px; color: black; }
     
-    /* 61170.jpg-ൽ ഉള്ളതുപോലെയുള്ള ഡാർക്ക് കലണ്ടർ ഡിസൈൻ */
+    /* Dark Calendar Design */
     .fc { background: #13112c !important; border-radius: 10px; padding: 15px; border: 1px solid #ffffff30; }
     .fc td, .fc th { border: 1px solid #ffffff40 !important; }
     .fc-col-header-cell { background: #1f1a40 !important; color: #fff !important; }
     .fc-daygrid-day-number { color: #fff !important; font-weight: bold; padding: 5px !important; }
     .fc-daygrid-day { min-height: 95px !important; background: #0c0a1f !important; }
     .fc-day-today { background: #25204e !important; }
-    
-    /* ബട്ടണുകൾ തിങ്ങിനിറയാതിരിക്കാൻ ചെറിയ മാർജിൻ */
     .fc-event { margin-top: 4px !important; margin-bottom: 4px !important; padding: 2px 5px !important; font-size: 13px !important; font-weight: bold !important; border-radius: 4px !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -74,36 +70,42 @@ def get_totals():
         df.columns = df.columns.str.strip()
         t_loss = pd.to_numeric(df.iloc[:, 2], errors='coerce').fillna(0).sum()
         t_profit = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0).sum()
-        net_amt = t_profit - t_loss
-        return float(t_profit), float(t_loss), float(net_amt)
+        return float(t_profit), float(t_loss), float(t_profit - t_loss)
     except: 
         return 0.0, 0.0, 0.0
 
 def create_pdf(df):
     try:
         pdf = FPDF()
-        pdf.add_page(); pdf.set_font("Arial", 'B', 16)
-        pdf.cell(190, 10, txt="PAICHI TRADING REPORT", ln=True, align='C'); pdf.ln(10)
+        pdf.add_page()
+        pdf.set_font("Arial", 'B', 16)
+        pdf.cell(190, 10, txt="PAICHI TRADING REPORT", ln=True, align='C')
+        pdf.ln(10)
+        
         cols = df.columns.tolist()
         pdf.set_font("Arial", 'B', 10)
-        for col in cols: pdf.cell(38, 10, txt=str(col), border=1)
-        pdf.ln(); pdf.set_font("Arial", size=9)
+        for col in cols: 
+            pdf.cell(38, 10, txt=str(col)[:15], border=1)
+        pdf.ln()
+        
+        pdf.set_font("Arial", size=9)
         for _, row in df.iterrows():
             for col in cols:
+                # സ്പെഷ്യൽ കാരക്ടറുകൾ മൂലം ഉണ്ടാകുന്ന എററുകൾ ഒഴിവാക്കാൻ
                 val = str(row[col]).encode('ascii', 'ignore').decode('ascii')
-                pdf.cell(38, 10, txt=val, border=1)
+                pdf.cell(38, 10, txt=val[:20], border=1)
             pdf.ln()
         return pdf.output(dest='S').encode('latin-1')
-    except: return None
+    except: 
+        return None
 
 def parse_mixed_dates(date_series):
     parsed_dates = []
     for val in date_series:
-        val_str = str(val).strip()
-        dt = pd.NaT
         try:
-            dt = pd.to_datetime(val_str, errors='coerce')
-        except: pass
+            dt = pd.to_datetime(str(val).strip(), errors='coerce')
+        except: 
+            dt = pd.NaT
         parsed_dates.append(dt)
     return pd.Series(parsed_dates)
 
@@ -116,7 +118,8 @@ if not st.session_state.auth:
         if USERS.get(u) == p:
             st.session_state.auth, st.session_state.user = True, u
             st.rerun()
-        else: st.error("Access Denied!")
+        else: 
+            st.error("Access Denied!")
 else:
     curr_user = st.session_state.user
     t_profit, t_loss, net_p_and_l = get_totals()
@@ -132,7 +135,9 @@ else:
         menu_options = ["🏠 Dashboard", "💰 Add Trade", "📅 Calendar", "📊 Report", "🔍 History"]
 
     page = st.sidebar.radio("Menu", menu_options)
-    if st.sidebar.button("Logout"): st.session_state.auth = False; st.rerun()
+    if st.sidebar.button("Logout"): 
+        st.session_state.auth = False
+        st.rerun()
 
     # --- PAGES ---
     if page == "🏠 Dashboard":
@@ -155,13 +160,20 @@ else:
                     if strike_price and am > 0:
                         c_val, d_val = (am, "") if "Profit" in ty else ("", am)
                         success = send_to_sheet_direct(strike_price, d_val, c_val)
+                        
                         status_icon = "🟢" if "Profit" in ty else "🔴"
                         msg = f"{status_icon} *Paichi Trade Entry*\n📝 Script: {strike_price}\n💰 P&L: ₹{am} ({ty})\n👤 Trader: {curr_user}"
+                        
+                        # WhatsApp മെസ്സേജ് ബാക്ക്ഗ്രൗണ്ടിൽ അയക്കുന്നു
                         threading.Thread(target=send_whatsapp_auto, args=(msg,)).start()
-                        st.success("Trade Logged & WhatsApp Notification Sent! ✅")
+                        
+                        st.success("Trade Logged Successfully! ✅")
+                        time.sleep(1) # Rerun ചെയ്യുന്നതിന് മുമ്പ് ത്രെഡ് റൺ ചെയ്യാൻ ചെറിയൊരു സമയം നൽകുന്നു
                         st.rerun()
-                    else: st.error("വിവരങ്ങൾ പൂർണ്ണമായി നൽകുക!")
-                except: st.error("തുക കൃത്യമായി നമ്പർ ആയി നൽകുക!")
+                    else: 
+                        st.error("വിവരങ്ങൾ പൂർണ്ണമായി നൽകുക!")
+                except: 
+                    st.error("തുക കൃത്യമായി നമ്പർ ആയി നൽകുക!")
 
     elif page == "📅 Calendar":
         st.title("P&L Calendar View 📅")
@@ -175,7 +187,6 @@ else:
             df.iloc[:, 2] = pd.to_numeric(df.iloc[:, 2], errors='coerce').fillna(0)
             df.iloc[:, 3] = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0)
             
-            # ഒരേ ദിവസത്തെ ഡാറ്റ ഒന്നിച്ച് കൂട്ടുന്നു
             daily_summary = df.groupby(df.columns[0]).agg({df.columns[2]: 'sum', df.columns[3]: 'sum'}).reset_index()
             
             calendar_events = []
@@ -183,8 +194,6 @@ else:
                 date_str = row[df.columns[0]].strftime('%Y-%m-%d')
                 total_loss = float(row[df.columns[2]])
                 total_profit = float(row[df.columns[3]])
-                
-                # 💡 ഒരേ ദിവസത്തെ Net P&L കറക്റ്റ് ആയി കണക്കാക്കുന്നു (കുത്തിക്കിടക്കുന്നത് ഒഴിവാക്കാൻ)
                 net_day_pnl = total_profit - total_loss
                 
                 if net_day_pnl > 0:
@@ -219,13 +228,11 @@ else:
                 clicked_dt = pd.to_datetime(clicked_date)
                 
                 st.markdown("---")
-                # 61170.jpg-ൽ ഉള്ളതുപോലെ ഭംഗിയുള്ള വലിയ ഹെഡിങ് സ്റ്റൈൽ
                 st.markdown(f"## 📋 Details for {clicked_dt.strftime('%d %B %Y')}")
                 
                 day_entries = df[df[df.columns[0]].dt.strftime('%Y-%m-%d') == clicked_date].copy()
                 
                 if not day_entries.empty:
-                    # 61170.jpg-ൽ ഉള്ളതുപോലെ Download ബട്ടൺ ഡിസൈൻ
                     csv_data = day_entries.to_csv(index=False).encode('utf-8')
                     st.download_button(
                         label="📥 Download This Day's Data",
@@ -251,12 +258,15 @@ else:
             if not df[df.iloc[:, 3] > 0].empty:
                 fig = px.pie(df[df.iloc[:, 3] > 0], values=df.columns[3], names=df.columns[1], hole=0.4, title="Profit Distribution")
                 st.plotly_chart(fig, use_container_width=True)
-            else: st.info("No profit data available for chart analysis.")
-        else: st.info("No data available.")
+            else: 
+                st.info("No profit data available for chart analysis.")
+        else: 
+            st.info("No data available.")
 
     elif page == "🔍 History":
         st.title("Trade Log History")
         df = pd.read_csv(f"{CSV_URL}&r={random.randint(1,999)}")
         pdf_bytes = create_pdf(df)
-        if pdf_bytes: st.download_button("📥 Download PDF Report", pdf_bytes, "Trading_Report.pdf", "application/pdf")
+        if pdf_bytes: 
+            st.download_button("📥 Download PDF Report", pdf_bytes, "Trading_Report.pdf", "application/pdf")
         st.dataframe(df.iloc[::-1], use_container_width=True)
