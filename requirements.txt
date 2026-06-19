@@ -1,3 +1,7 @@
 streamlit
 pandas
 requests
+fpdf
+plotly
+streamlit-autorefresh
+streamlit-calendar
