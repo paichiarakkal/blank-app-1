@@ -162,15 +162,12 @@ else:
             df = pd.read_csv(f"{CSV_URL}&r={random.randint(1,999)}")
             df.columns = df.columns.str.strip()
             
-            # ഷീറ്റിലെ 1-ാമത്തെ കോളം തീയതിയാണ് (Date)
             df[df.columns[0]] = parse_mixed_dates(df[df.columns[0]])
             df = df.dropna(subset=[df.columns[0]])
             
-            # Debit (2nd index), Credit (3rd index)
             df.iloc[:, 2] = pd.to_numeric(df.iloc[:, 2], errors='coerce').fillna(0)
             df.iloc[:, 3] = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0)
             
-            # 💡 പ്രതിദിന ലാഭവും നഷ്ടവും ഒന്നിച്ച് കൂട്ടി ഗ്രൂപ്പ് ചെയ്യുന്നു
             daily_summary = df.groupby(df.columns[0]).agg({df.columns[2]: 'sum', df.columns[3]: 'sum'}).reset_index()
             
             calendar_events = []
@@ -179,10 +176,11 @@ else:
                 total_loss = float(row[df.columns[2]])
                 total_profit = float(row[df.columns[3]])
                 
+                # "Total:" ഒഴിവാക്കി വെറും തുക മാത്രം കാണിക്കുന്നു
                 if total_profit > 0:
                     calendar_events.append({
                         "id": f"profit_{date_str}",
-                        "title": f" Total: +₹{total_profit:,.0f}",
+                        "title": f" +₹{total_profit:,.0f}",
                         "start": date_str,
                         "backgroundColor": "#198754",
                         "borderColor": "#198754",
@@ -191,7 +189,7 @@ else:
                 if total_loss > 0:
                     calendar_events.append({
                         "id": f"loss_{date_str}",
-                        "title": f" Total: -₹{total_loss:,.0f}",
+                        "title": f" -₹{total_loss:,.0f}",
                         "start": date_str,
                         "backgroundColor": "#dc3545",
                         "borderColor": "#dc3545",
@@ -206,7 +204,6 @@ else:
             
             cal_data = calendar(events=calendar_events, options=calendar_options, key="trading_pnl_calendar")
             
-            # ബട്ടൺ തൊടുമ്പോൾ ഫുൾ ഡീറ്റെയിൽസ് താഴെ കാണിക്കുന്ന ഭാഗം
             if cal_data.get("eventClick"):
                 clicked_date = cal_data["eventClick"]["event"]["start"].split("T")[0]
                 clicked_dt = pd.to_datetime(clicked_date)
