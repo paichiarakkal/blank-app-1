@@ -1,149 +1,244 @@
 import streamlit as st
 import pandas as pd
 import requests
+import json
 from datetime import datetime
-import yfinance as yf
-import urllib.parse
+import random
+import plotly.express as px
 from streamlit_autorefresh import st_autorefresh
+from fpdf import FPDF
+import io
+import urllib.parse
+import threading
+import re
+from streamlit_calendar import calendar
 
 # --- 1. CONFIG & SETTINGS ---
+CSV_URL = "https://docs.google.com/spreadsheets/d/1Ocd6zjmBuQOtOcWBAJZUxhRJjqxRfRgKCvBQTIrJTIY/export?format=csv"
+WEBAPP_URL = "https://script.google.com/macros/s/AKfycbx32NCrmb5UhcyEIFVhoO3mZzTjYnKuLm_MPjaNiJztGkj-fiOvlSTsXcZ_BCUKRxKWAg/exec"
+
+# WhatsApp API Config (CallMeBot)
 WA_PHONE = "971551347989"
 WA_API_KEY = "7463030"
 
 USERS = {"faisal": "faisal147", "shabana": "shabana123", "admin": "paichi786"}
 
-st.set_page_config(page_title="PAICHI GOLD TRADING v8.0", layout="wide")
-# 1 മിനിറ്റിൽ ബാക്ക്ഗ്രൗണ്ടിൽ ഓട്ടോ റിഫ്രഷ് ആകും
+st.set_page_config(page_title="PAICHI TRADING PRO v8.8", layout="wide")
 st_autorefresh(interval=60000, key="auto_refresh")
-
-# സിഗ്നലുകൾ ട്രാക്ക് ചെയ്യാൻ സെഷൻ സ്റ്റേറ്റ് മെമ്മറി സെറ്റ് ചെയ്യുന്നു
-if 'last_signals' not in st.session_state:
-    st.session_state.last_signals = {"Nifty 50": "", "Bank Nifty": "", "Crude Fut": ""}
 
 # --- 2. 🎨 PREMIUM DESIGN ---
 st.markdown("""
     <style>
-    .stApp { background: linear-gradient(135deg, #2D0844, #4B0082, #1A0521); color: #fff; }
+    .stApp { background: linear-gradient(135deg, #0F2027, #203A43, #2C5364); color: #fff; }
     [data-testid="stSidebar"] { background: rgba(0,0,0,0.85) !important; }
-    .stButton>button { background-color: #FFD700; color: #000; border-radius: 10px; font-weight: bold; width: 100%; height: 50px; font-size: 18px; }
-    .terminal-banner { background: rgba(255, 255, 255, 0.05); padding: 25px; border-radius: 15px; border-left: 10px solid #FFD700; margin-bottom: 25px; text-align: center; }
-    .purple-box { background: rgba(255, 255, 255, 0.05); padding: 25px; border-radius: 25px; border: 2px solid rgba(255, 215, 0, 0.3); text-align: center; margin-bottom: 20px; }
+    .stButton>button { background-color: #00FFCC; color: #000; border-radius: 10px; font-weight: bold; width: 100%; }
+    .balance-banner { background: rgba(255, 255, 255, 0.05); padding: 25px; border-radius: 15px; border-left: 10px solid #00FFCC; margin-bottom: 25px; text-align: center; }
+    .purple-box { background: rgba(255, 255, 255, 0.05); padding: 20px; border-radius: 25px; border: 2px solid rgba(0, 255, 204, 0.3); text-align: center; margin-bottom: 20px; }
     h1, h2, h3, p, label { color: white !important; font-weight: bold !important; }
+    .stDataFrame { background: white; border-radius: 10px; color: black; }
+    /* FullCalendar Custom Dark Design to match Upstox Style */
+    .fc { background: rgba(255,255,255,0.02); border-radius: 15px; padding: 10px; }
+    .fc-col-header-cell { background: rgba(0, 255, 204, 0.2); }
+    .fc-daygrid-day { min-height: 90px !important; }
     </style>
     """, unsafe_allow_html=True)
 
 if 'auth' not in st.session_state: st.session_state.auth = False
 if 'user' not in st.session_state: st.session_state.user = ""
 
-# --- 3. 🚀 CALLMEBOT ENGINE ---
-def send_callmebot_whatsapp(message_text):
-    url = f"https://api.callmebot.com/whatsapp.php?phone={WA_PHONE}&text={urllib.parse.quote(message_text)}&apikey={WA_API_KEY}"
-    try:
-        response = requests.get(url, timeout=10)
-        return response.status_code == 200
-    except:
-        return False
+# --- 3. 📊 SMART ENGINES ---
 
-# --- 4. 📈 TRIPLE ADVISOR ENGINE ---
-def get_triple_advisor():
-    try:
-        symbols = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK", "Crude Fut": "CL=F"}
-        results = []
-        for name, sym in symbols.items():
-            df = yf.Ticker(sym).history(period="5d", interval="5m")
-            if df.empty: continue
-            last_p = df['Close'].iloc[-1]
-            h, l, c = df['High'].iloc[-2], df['Low'].iloc[-2], df['Close'].iloc[-2]
-            pivot = (h + l + c) / 3
-            delta = df['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rsi = 100 - (100 / (1 + (gain / loss).iloc[-1]))
-            
-            if last_p > pivot and rsi > 55: signal, color, icon = "🚀 BUY", "#00FF00", "🟢"
-            elif last_p < pivot and rsi < 45: signal, color, icon = "📉 SELL", "#FF3131", "🔴"
-            else: signal, color, icon = "⚖️ WAIT", "#FFFF00", "🟡"
-            
-            if name == "Crude Fut": 
-                last_p = last_p * 83.5 * 1.15
-                
-            results.append({"name": name, "price": last_p, "signal": signal, "rsi": rsi, "color": color, "icon": icon})
-        return results
-    except:
-        return None
+def send_whatsapp_auto(message):
+    url = f"https://api.callmebot.com/whatsapp.php?phone={WA_PHONE}&text={urllib.parse.quote(message)}&apikey={WA_API_KEY}"
+    try: requests.get(url, timeout=10)
+    except: pass
 
-# --- 5. MAIN APP ---
+def send_to_sheet_direct(script, debit, credit):
+    payload = {"script": script, "debit": debit, "credit": credit}
+    try:
+        res = requests.post(WEBAPP_URL, data=json.dumps(payload), headers={"Content-Type": "application/json"}, timeout=15)
+        if res.status_code == 200: return True
+    except: pass
+    return False
+
+def get_totals():
+    try:
+        df = pd.read_csv(f"{CSV_URL}&r={random.randint(1,999)}")
+        df.columns = df.columns.str.strip()
+        t_loss = pd.to_numeric(df.iloc[:, 2], errors='coerce').fillna(0).sum()
+        t_profit = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0).sum()
+        net_amt = t_profit - t_loss
+        return float(t_profit), float(t_loss), float(net_amt)
+    except: 
+        return 0.0, 0.0, 0.0
+
+def create_pdf(df):
+    try:
+        pdf = FPDF()
+        pdf.add_page(); pdf.set_font("Arial", 'B', 16)
+        pdf.cell(190, 10, txt="PAICHI TRADING REPORT", ln=True, align='C'); pdf.ln(10)
+        cols = df.columns.tolist()
+        pdf.set_font("Arial", 'B', 10)
+        for col in cols: pdf.cell(38, 10, txt=str(col), border=1)
+        pdf.ln(); pdf.set_font("Arial", size=9)
+        for _, row in df.iterrows():
+            for col in cols:
+                val = str(row[col]).encode('ascii', 'ignore').decode('ascii')
+                pdf.cell(38, 10, txt=val, border=1)
+            pdf.ln()
+        return pdf.output(dest='S').encode('latin-1')
+    except: return None
+
+def parse_mixed_dates(date_series):
+    parsed_dates = []
+    for val in date_series:
+        val_str = str(val).strip()
+        dt = pd.NaT
+        try:
+            dt = pd.to_datetime(val_str, errors='coerce')
+        except: pass
+        parsed_dates.append(dt)
+    return pd.Series(parsed_dates)
+
+# --- 4. APP MAIN ---
 if not st.session_state.auth:
-    st.markdown('<div style="text-align:center; padding-top:50px;"><h1>🔐 PAICHI TRADING BOT LOGIN</h1></div>', unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        u = st.text_input("Username").lower()
-        p = st.text_input("Password", type="password")
-        if st.button("LOGIN TO TERMINAL"):
-            if USERS.get(u) == p:
-                st.session_state.auth, st.session_state.user = True, u
-                st.rerun()
-            else: st.error("Access Denied!")
+    st.title("🔐 PAICHI TRADING LOGIN")
+    u = st.text_input("Username").lower()
+    p = st.text_input("Password", type="password")
+    if st.button("LOGIN"):
+        if USERS.get(u) == p:
+            st.session_state.auth, st.session_state.user = True, u
+            st.rerun()
+        else: st.error("Access Denied!")
 else:
     curr_user = st.session_state.user
+    t_profit, t_loss, net_p_and_l = get_totals()
     
-    st.markdown(f'''<div class="terminal-banner">
-        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v8.0</span><br>
-        <span style="font-size:14px; color:#E0B0FF;">Welcome, {curr_user.capitalize()} | 🤖 Auto-Alerts Enabled</span>
+    st.markdown(f'''<div class="balance-banner">
+        <span style="font-size:20px; color: #00FFCC;">Net Trading P&L Balance</span><br>
+        <span style="font-size:40px; color:#FFD700; font-weight:bold;">₹{net_p_and_l:,.2f}</span>
     </div>''', unsafe_allow_html=True)
 
-    if st.sidebar.button("Logout"): 
-        st.session_state.auth = False
-        st.rerun()
+    if curr_user == "shabana": 
+        menu_options = ["💰 Add Trade", "📅 Calendar"]
+    else: 
+        menu_options = ["🏠 Dashboard", "💰 Add Trade", "📅 Calendar", "📊 Report", "🔍 History"]
 
-    markets = get_triple_advisor()
-    
-    # --- 🤖 AUTOMATIC ALERT CHECKER ---
-    if markets:
-        for m in markets:
-            asset_name = m["name"]
-            current_signal = m["signal"]
+    page = st.sidebar.radio("Menu", menu_options)
+    if st.sidebar.button("Logout"): st.session_state.auth = False; st.rerun()
+
+    # --- PAGES ---
+    if page == "🏠 Dashboard":
+        st.title("Trading Overview")
+        st.markdown(f"""<div class="purple-box">
+            <h2 style="color: #00FF00;">Total Profits: ₹{t_profit:,.2f}</h2>
+            <h2 style="color: #FF3131;">Total Losses: ₹{t_loss:,.2f}</h2>
+        </div>""", unsafe_allow_html=True)
+
+    elif page == "💰 Add Trade":
+        st.title("Log New Trade 📈")
+        with st.form("trade_form", clear_on_submit=True):
+            strike_price = st.text_input("Strike Price / Script Name (e.g., Nifty 24000 CE)")
+            am_str = st.text_input("Amount (തുക)")
+            ty = st.radio("Result Type", ["Profit (Credit)", "Loss (Debit)"], horizontal=True)
             
-            # മുൻപ് അയച്ച സിഗ്നൽ അല്ല പുതിയതെങ്കിൽ മാത്രം ഓട്ടോമാറ്റിക് ആയി മെസ്സേജ് അയക്കും!
-            if st.session_state.last_signals[asset_name] != current_signal:
-                now_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                auto_msg = (
-                    f"{m['icon']} *AUTOMATIC SIGNAL ALERT* {m['icon']}\n\n"
-                    f"📦 *Asset:* {asset_name}\n"
-                    f"🚦 *New Signal:* {current_signal}\n"
-                    f"💰 *Price:* ₹{m['price']:,.2f}\n"
-                    f"📊 *RSI:* {m['rsi']:.2f}\n"
-                    f"⏰ *Time:* {now_time}\n\n"
-                    f"🤖 _Paichi Engine Auto-Notification_"
-                )
-                # മെസ്സേജ് അയക്കുന്നു
-                send_callmebot_whatsapp(auto_msg)
-                # പുതിയ സിഗ്നൽ മെമ്മറിയിൽ സേവ് ചെയ്യുന്നു (തുടർച്ചയായി മെസ്സേജ് വരാതിരിക്കാൻ)
-                st.session_state.last_signals[asset_name] = current_signal
+            if st.form_submit_button("SAVE TRADE & NOTIFY"):
+                try:
+                    am = float(am_str.strip().replace(',', ''))
+                    if strike_price and am > 0:
+                        c_val, d_val = (am, "") if "Profit" in ty else ("", am)
+                        success = send_to_sheet_direct(strike_price, d_val, c_val)
+                        status_icon = "🟢" if "Profit" in ty else "🔴"
+                        msg = f"{status_icon} *Paichi Trade Entry*\n📝 Script: {strike_price}\n💰 P&L: ₹{am} ({ty})\n👤 Trader: {curr_user}"
+                        threading.Thread(target=send_whatsapp_auto, args=(msg,)).start()
+                        st.success("Trade Logged & WhatsApp Notification Sent! ✅")
+                        st.rerun()
+                    else: st.error("വിവരങ്ങൾ പൂർണ്ണമായി നൽകുക!")
+                except: st.error("തുക കൃത്യമായി നമ്പർ ആയി നൽകുക!")
 
-    # --- LIVE DISPLAY ---
-    st.subheader("Live Market Signals (Auto-Updates Every 60s)")
-    if markets:
-        cols = st.columns(3)
-        for i, m in enumerate(markets):
-            with cols[i]:
-                st.markdown(f"""<div class="purple-box" style="border-color: {m['color']} !important;">
-                    <h2 style="color:#E0B0FF !important;">{m["name"]}</h2>
-                    <h1 style="color:{m["color"]} !important; font-size:48px;">{m["signal"]}</h1>
-                    <h1 style="color:#FFD700 !important; font-size:38px;">₹{m["price"]:,.2f}</h1>
-                    <span style="color:#aaa; font-size:14px;">RSI (14): {m["rsi"]:.2f}</span>
-                </div>""", unsafe_allow_html=True)
-    else:
-        st.warning("Fetching Market Data...")
+    elif page == "📅 Calendar":
+        st.title("P&L Calendar View 📅")
+        try:
+            df = pd.read_csv(f"{CSV_URL}&r={random.randint(1,999)}")
+            df.columns = df.columns.str.strip()
+            
+            # ഷീറ്റിലെ 1-ാമത്തെ കോളം തീയതിയാണ് (Date)
+            df[df.columns[0]] = parse_mixed_dates(df[df.columns[0]])
+            df = df.dropna(subset=[df.columns[0]])
+            
+            # Debit (2nd index), Credit (3rd index)
+            df.iloc[:, 2] = pd.to_numeric(df.iloc[:, 2], errors='coerce').fillna(0)
+            df.iloc[:, 3] = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0)
+            
+            daily_summary = df.groupby(df.columns[0]).agg({df.columns[2]: 'sum', df.columns[3]: 'sum'}).reset_index()
+            
+            calendar_events = []
+            for _, row in daily_summary.iterrows():
+                date_str = row[df.columns[0]].strftime('%Y-%m-%d')
+                profit = float(row[df.columns[3]])
+                loss = float(row[df.columns[2]])
+                
+                if profit > 0:
+                    calendar_events.append({
+                        "id": f"profit_{date_str}",
+                        "title": f" +₹{profit:,.0f}",
+                        "start": date_str,
+                        "backgroundColor": "#198754",
+                        "borderColor": "#198754",
+                        "textColor": "white"
+                    })
+                if loss > 0:
+                    calendar_events.append({
+                        "id": f"loss_{date_str}",
+                        "title": f" -₹{loss:,.0f}",
+                        "start": date_str,
+                        "backgroundColor": "#dc3545",
+                        "borderColor": "#dc3545",
+                        "textColor": "white"
+                    })
+            
+            calendar_options = {
+                "headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth"},
+                "initialView": "dayGridMonth",
+                "selectable": True,
+            }
+            
+            cal_data = calendar(events=calendar_events, options=calendar_options, key="trading_pnl_calendar")
+            
+            # ബട്ടൺ തൊടുമ്പോൾ ഫുൾ ഡീറ്റെയിൽസ് താഴെ കാണിക്കുന്ന ഭാഗം
+            if cal_data.get("eventClick"):
+                clicked_date = cal_data["eventClick"]["event"]["start"].split("T")[0]
+                clicked_dt = pd.to_datetime(clicked_date)
+                
+                st.markdown("---")
+                st.subheader(f"📋 Trade Breakdown for {clicked_dt.strftime('%d %B %Y')}")
+                
+                day_entries = df[df[df.columns[0]].dt.strftime('%Y-%m-%d') == clicked_date].copy()
+                
+                if not day_entries.empty:
+                    day_entries[df.columns[0]] = day_entries[df.columns[0]].dt.strftime('%d/%m/%Y')
+                    show_df = day_entries[[df.columns[0], df.columns[1], df.columns[2], df.columns[3]]]
+                    show_df.columns = ['Date', 'Script/Strike Price', 'Loss (Debit)', 'Profit (Credit)']
+                    st.dataframe(show_df.reset_index(drop=True), use_container_width=True)
+                else:
+                    st.info("No details found for this day.")
+        except Exception as e:
+            st.error("കലണ്ടർ ഡാറ്റ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല!")
 
-    st.write("---")
-    st.subheader("Manual Backup Controls")
-    if markets:
-        selected_market = st.selectbox("Select Asset for Manual Alert", [m["name"] for m in markets])
-        market_data = next(item for item in markets if item["name"] == selected_market)
-        
-        if st.button(f"🚀 Force Send {market_data['name']} Signal"):
-            now_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            wa_msg = f"{market_data['icon']} *MANUAL SIGNAL* {market_data['icon']}\n\nAsset: {market_data['name']}\nSignal: {market_data['signal']}\nPrice: ₹{market_data['price']:,.2f}\nTime: {now_time}"
-            if send_callmebot_whatsapp(wa_msg):
-                st.success("Manual Alert Sent! ✅")
+    elif page == "📊 Report":
+        st.title("Profit Analysis")
+        df = pd.read_csv(f"{CSV_URL}&r={random.randint(1,999)}")
+        if len(df.columns) >= 4:
+            df.iloc[:, 3] = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0)
+            if not df[df.iloc[:, 3] > 0].empty:
+                fig = px.pie(df[df.iloc[:, 3] > 0], values=df.columns[3], names=df.columns[1], hole=0.4, title="Profit Distribution")
+                st.plotly_chart(fig, use_container_width=True)
+            else: st.info("No profit data available for chart analysis.")
+        else: st.info("No data available.")
+
+    elif page == "🔍 History":
+        st.title("Trade Log History")
+        df = pd.read_csv(f"{CSV_URL}&r={random.randint(1,999)}")
+        pdf_bytes = create_pdf(df)
+        if pdf_bytes: st.download_button("📥 Download PDF Report", pdf_bytes, "Trading_Report.pdf", "application/pdf")
+        st.dataframe(df.iloc[::-1], use_container_width=True)
