@@ -170,27 +170,28 @@ else:
             df.iloc[:, 2] = pd.to_numeric(df.iloc[:, 2], errors='coerce').fillna(0)
             df.iloc[:, 3] = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0)
             
+            # 💡 പ്രതിദിന ലാഭവും നഷ്ടവും ഒന്നിച്ച് കൂട്ടി ഗ്രൂപ്പ് ചെയ്യുന്നു
             daily_summary = df.groupby(df.columns[0]).agg({df.columns[2]: 'sum', df.columns[3]: 'sum'}).reset_index()
             
             calendar_events = []
             for _, row in daily_summary.iterrows():
                 date_str = row[df.columns[0]].strftime('%Y-%m-%d')
-                profit = float(row[df.columns[3]])
-                loss = float(row[df.columns[2]])
+                total_loss = float(row[df.columns[2]])
+                total_profit = float(row[df.columns[3]])
                 
-                if profit > 0:
+                if total_profit > 0:
                     calendar_events.append({
                         "id": f"profit_{date_str}",
-                        "title": f" +₹{profit:,.0f}",
+                        "title": f" Total: +₹{total_profit:,.0f}",
                         "start": date_str,
                         "backgroundColor": "#198754",
                         "borderColor": "#198754",
                         "textColor": "white"
                     })
-                if loss > 0:
+                if total_loss > 0:
                     calendar_events.append({
                         "id": f"loss_{date_str}",
-                        "title": f" -₹{loss:,.0f}",
+                        "title": f" Total: -₹{total_loss:,.0f}",
                         "start": date_str,
                         "backgroundColor": "#dc3545",
                         "borderColor": "#dc3545",
