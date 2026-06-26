@@ -72,7 +72,6 @@ with st.sidebar:
     st.markdown(f'<div class="info-box">Shop: ₹ {shop_rate:,.0f}</div>', unsafe_allow_html=True)
     
     st.divider()
-    # പുതിയ 'KEY MOMENTS' മെനുവിലേക്ക് ചേർത്തു
     mode = st.radio("മെനു:", ["MARKET", "JOURNAL", "DASHBOARD", "KEY MOMENTS"])
     st.divider()
 
@@ -122,49 +121,47 @@ elif mode == "DASHBOARD":
         st.write(f"### Net P&L: ₹ {df['P&L'].sum():,.2f}")
         st.dataframe(df.iloc[::-1], use_container_width=True)
 
-# --- പുത്തൻ ഫീച്ചർ: GOOGLE FINANCE STYLE AI KEY MOMENTS ---
+# --- 4. GOOGLE FINANCE STYLE AI KEY MOMENTS ---
 elif mode == "KEY MOMENTS":
     st.markdown('<p class="main-title">📌 GOOGLE FINANCE AI KEY MOMENTS</p>', unsafe_allow_html=True)
     st.write("ഏതെങ്കിലും സ്റ്റോക്ക് കോഡ് നൽകി ലേറ്റസ്റ്റ് ട്രെൻഡുകളും വാർത്തകളും AI വഴി വിശകലനം ചെയ്യുക.")
     
-    km_ticker = st.text_input("സ്റ്റോക്ക് / ക്രിപ്റ്റോ കോഡ് നൽകുക (eg: AAPL, TSLA, BTC-USD):", "AAPL")
+    km_ticker = st.text_input("സ്റ്റോക്ക് / ക്രിപ്റ്റോ കോഡ് നൽകുക (eg: AAPL, TSLA, BTC-USD, ^NSEI):", "^NSEI")
     
     if km_ticker:
         try:
             stock_obj = yf.Ticker(km_ticker)
-            # കഴിഞ്ഞ 5 ദിവസത്തെ ഡാറ്റ എടുക്കുന്നു
             hist_df = stock_obj.history(period="5d")
             
             if not hist_df.empty:
-                # ലൈവ് വില വിവരങ്ങൾ
                 close_prices = hist_df['Close'].squeeze()
                 latest_p = close_prices.iloc[-1]
                 prev_p = close_prices.iloc[-2] if len(close_prices) > 1 else latest_p
                 day_change = ((latest_p - prev_p) / prev_p) * 100
                 
-                # വാർത്തകൾ ശേഖരിക്കുന്നു
+                # വാർത്തകൾ സുരക്ഷിതമായി എടുക്കുന്നു (Title KeyError പരിഹരിച്ചു)
                 stock_news = stock_obj.news
                 news_text = ""
                 if stock_news:
                     for n in stock_news[:5]:
-                        news_text += f"- {n['title']} (Source: {n['publisher']})\n"
+                        title = n.get('title', 'No Title Available')
+                        publisher = n.get('publisher', 'Unknown Source')
+                        news_text += f"- {title} (Source: {publisher})\n"
                 else:
                     news_text = "പ്രത്യേകിച്ച് പുതിയ വാർത്തകൾ ഒന്നും ലഭ്യമല്ല."
                 
-                # ഡാറ്റ സ്ക്രീനിൽ കാണിക്കാൻ
                 c1, c2 = st.columns(2)
-                c1.metric("നിലവിലെ വില", f"${latest_p:,.2f}")
+                c1.metric("നിലവിലെ വില", f"${latest_p:,.2f}" if "^" in km_ticker or "-" in km_ticker else f"₹ {latest_p:,.2f}")
                 c2.metric("വില വ്യത്യാസം (Daily)", f"{day_change:.2f}%")
                 
                 st.line_chart(close_prices)
                 
-                # AI അനാലിസിസ് ബട്ടൺ
                 if st.button("AI KEY MOMENTS ജനറേറ്റ് ചെയ്യുക"):
                     with st.spinner("മാർക്കറ്റ് വിവരങ്ങൾ AI വിശകലനം ചെയ്യുന്നു..."):
                         ai_prompt = f"""
                         You are a financial analyst expert like Google Finance AI.
                         Analyze the stock asset: '{km_ticker}'.
-                        Current Price: ${latest_p:.2f}
+                        Current Price: {latest_p:.2f}
                         Daily Change: {day_change:.2f}%
                         Recent News Highlights:
                         {news_text}
@@ -181,7 +178,7 @@ elif mode == "KEY MOMENTS":
                         st.markdown("""<style>.report-box { background-color: #ffffff; padding: 15px; border-radius: 5px; color: #111; border-left: 5px solid #FFD700; }</style>""", unsafe_allow_html=True)
                         st.markdown(f'<div class="report-box"><b>🤖 AI അനാലിസിസ് റിപ്പോർട്ട്:</b><br><br>{response.choices[0].message.content}</div>', unsafe_allow_html=True)
             else:
-                st.error("ക്ഷമിക്കണം, ഈ കോഡിന്റെ മാർക്കറ്റ് വിവരങ്ങൾ ലഭ്യമായില്ല.")
+                st.error("ക്ഷമിക്കണം, ഈ കോഡിന്റെ മാർക്കറ്റ് വിവരങ്ങൾ ലഭ്യമായില്ല. കോഡ് മാറ്റി നോക്കൂ (eg: ^NSEI, AAPL)")
         except Exception as err:
             st.error(f"Error encountered: {err}")
 
