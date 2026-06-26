@@ -1,7 +1,4 @@
 streamlit
+yfinance
 pandas
-requests
-fpdf
-plotly
-streamlit-autorefresh
-streamlit-calendar
+ta
