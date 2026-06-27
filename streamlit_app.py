@@ -3,13 +3,25 @@ import yfinance as yf
 import pandas as pd
 import datetime
 import os
-import re
-from openai import OpenAI
+import requests
 from streamlit_autorefresh import st_autorefresh
 
-# --- OpenAI API കോൺഫിഗറേഷൻ ---
-# 🔐 Secrets-ൽ നൽകിയ OPENAI_API_KEY സുരക്ഷിതമായി ഇവിടെ റീഡ് ചെയ്യുന്നു
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+# --- Google Gemini API കോൺഫിഗറേഷൻ (സൗജന്യ പതിപ്പ്) ---
+GEMINI_KEY = st.secrets["GEMINI_API_KEY"]
+
+def call_gemini_ai(prompt_text):
+    try:
+        # Gemini 1.5 Flash മോഡൽ ഉപയോഗിച്ച് ഫ്രീ ആയി റൺ ചെയ്യുന്നു
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+        headers = {'Content-Type': 'application/json'}
+        payload = {"contents": [{"parts": [{"text": prompt_text}]}]}
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            return response.json()['candidates'][0]['content']['parts'][0]['text']
+        else:
+            return f"Gemini API Error: {response.status_code} - {response.text}"
+    except Exception as e:
+        return f"AI കണക്ഷൻ എറർ: {e}"
 
 # 1. പേജ് സെറ്റിംഗ്‌സ് & ഗോൾഡൻ തീം
 st.set_page_config(page_title="Paichi AI Trader Pro", layout="wide")
@@ -24,7 +36,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st_autorefresh(interval=30000, key="faisal_full_app_v2")
+st_autorefresh(interval=30000, key="faisal_full_app_gemini")
 FILE_NAME = 'trade_history_v2.csv'
 
 # --- ഫംഗ്ഷനുകൾ ---
@@ -156,7 +168,7 @@ elif mode == "KEY MOMENTS":
                 st.line_chart(close_prices)
                 
                 if st.button("AI KEY MOMENTS ജനറേറ്റ് ചെയ്യുക"):
-                    with st.spinner("മാർക്കറ്റ് വിവരങ്ങൾ AI വിശകലനം ചെയ്യുന്നു..."):
+                    with st.spinner("മാർക്കറ്റ് വിവരങ്ങൾ Google Gemini AI വിശകലനം ചെയ്യുന്നു..."):
                         ai_prompt = f"""
                         You are a financial analyst expert like Google Finance AI.
                         Analyze the stock asset: '{km_ticker}'.
@@ -168,14 +180,10 @@ elif mode == "KEY MOMENTS":
                         Create a brief section named 'Key Moments' in Malayalam. Explain why the price is moving or provide an important summary that investors must look at today. Use clear, simple Malayalam prose mixed with English financial terms if necessary.
                         """
                         
-                        response = client.chat.completions.create(
-                            model="gpt-4o-mini",
-                            messages=[{"role": "user", "content": ai_prompt}],
-                            temperature=0.7
-                        )
+                        gemini_response = call_gemini_ai(ai_prompt)
                         
                         st.markdown("""<style>.report-box { background-color: #ffffff; padding: 15px; border-radius: 5px; color: #111; border-left: 5px solid #FFD700; }</style>""", unsafe_allow_html=True)
-                        st.markdown(f'<div class="report-box"><b>🤖 AI അനാലിസിസ് റിപ്പോർട്ട്:</b><br><br>{response.choices[0].message.content}</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="report-box"><b>🤖 AI അനാലിസിസ് റിപ്പോർട്ട് (Gemini Free):</b><br><br>{gemini_response}</div>', unsafe_allow_html=True)
             else:
                 st.error("ക്ഷമിക്കണം, ഈ കോഡിന്റെ മാർക്കറ്റ് വിവരങ്ങൾ ലഭ്യമായില്ല. കോഡ് മാറ്റി നോക്കൂ (eg: ^NSEI, AAPL)")
         except Exception as err:
