@@ -11,7 +11,7 @@ GEMINI_KEY = st.secrets["GEMINI_API_KEY"]
 
 def call_gemini_ai(prompt_text):
     try:
-        # 🎯 ഇവിടെ v1beta മാറ്റി v1 ആക്കിയിട്ടുണ്ട്, ഇപ്പോൾ പക്കാ ആയി വർക്ക് ചെയ്യും
+        # സ്റ്റേബിൾ ആയ v1 യുആർഎൽ
         url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt_text}]}]}
@@ -36,7 +36,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st_autorefresh(interval=30000, key="faisal_full_app_gemini_v2")
+st_autorefresh(interval=30000, key="faisal_full_app_gemini_v3")
 FILE_NAME = 'trade_history_v2.csv'
 
 # --- ഫംഗ്ഷനുകൾ ---
@@ -96,7 +96,7 @@ with st.sidebar:
         if st.button("📉 MIDCAP"): st.session_state.sel_ticker = ("^NSEMDCP50", "MIDCAP 50"); st.rerun()
         if st.button("⛽ CRUDE OIL"): st.session_state.sel_ticker = ("CL=F", "CRUDE OIL"); st.rerun()
 
-# --- 3. മെയിൻ കണ്ടന്റ് ---
+# --- 3. MEIN CONTENT ---
 if mode == "MARKET":
     st.markdown(f'<p class="main-title">🚀 {st.session_state.sel_ticker[1]}</p>', unsafe_allow_html=True)
     symbol, name = st.session_state.sel_ticker
