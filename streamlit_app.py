@@ -223,8 +223,8 @@ else:
             fig = fgo.Figure(data=[fgo.Candlestick(x=chart_df.index,
                             open=chart_df['Open'], high=chart_df['High'],
                             low=chart_df['Low'], close=chart_df['Close'], name='Candlestick')])
-            fig.update_layout(theme="dark", xaxis_rangeslider_visible=False, template="plotly_dark",
-                              margin=dict(l=20, r=20, t=20, b=20), height=400)
+            fig.update_layout(xaxis_rangeslider_visible=False, template="plotly_dark",
+                  margin=dict(l=20, r=20, t=20, b=20), height=400)
             st.plotly_chart(fig, use_container_width=True)
 
     with tab3:
