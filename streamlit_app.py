@@ -8,8 +8,8 @@ from openai import OpenAI
 from streamlit_autorefresh import st_autorefresh
 
 # --- OpenAI API കോൺഫിഗറേഷൻ ---
-# ⚠️ നിങ്ങളുടെ ഒറിജിനൽ OpenAI API Key ഇവിടെ നൽകുക
-client = OpenAI(api_key="YOUR_OPENAI_API_KEY")
+# 🔐 Secrets-ൽ നൽകിയ OPENAI_API_KEY സുരക്ഷിതമായി ഇവിടെ റീഡ് ചെയ്യുന്നു
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # 1. പേജ് സെറ്റിംഗ്‌സ് & ഗോൾഡൻ തീം
 st.set_page_config(page_title="Paichi AI Trader Pro", layout="wide")
