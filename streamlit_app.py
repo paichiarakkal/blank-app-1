@@ -3,25 +3,21 @@ import yfinance as yf
 import pandas as pd
 import datetime
 import os
-import requests
+import openai
 from streamlit_autorefresh import st_autorefresh
 
-# --- Google Gemini API കോൺഫിഗറേഷൻ (സൗജന്യ പതിപ്പ്) ---
-GEMINI_KEY = st.secrets["GEMINI_API_KEY"]
+# --- OpenAI API കോൺഫിഗറേഷൻ ---
+openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-def call_gemini_ai(prompt_text):
+def call_openai_ai(prompt_text):
     try:
-        # സ്റ്റേബിൾ ആയ v1 യുആർഎൽ
-        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
-        headers = {'Content-Type': 'application/json'}
-        payload = {"contents": [{"parts": [{"text": prompt_text}]}]}
-        response = requests.post(url, json=payload, headers=headers)
-        if response.status_code == 200:
-            return response.json()['candidates'][0]['content']['parts'][0]['text']
-        else:
-            return f"Gemini API Error: {response.status_code} - {response.text}"
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt_text}]
+        )
+        return response.choices[0].message['content']
     except Exception as e:
-        return f"AI കണക്ഷൻ എറർ: {e}"
+        return f"Error encountered: {e}"
 
 # 1. പേജ് സെറ്റിംഗ്‌സ് & ഗോൾഡൻ തീം
 st.set_page_config(page_title="Paichi AI Trader Pro", layout="wide")
@@ -36,7 +32,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st_autorefresh(interval=30000, key="faisal_full_app_gemini_v3")
+st_autorefresh(interval=30000, key="faisal_original_app")
 FILE_NAME = 'trade_history_v2.csv'
 
 # --- ഫംഗ്ഷനുകൾ ---
@@ -57,7 +53,7 @@ def save_trade(symbol, action, entry_p, exit_p, qty, pnl, mood):
 if 'sel_ticker' not in st.session_state:
     st.session_state.sel_ticker = ("^NSEI", "NIFTY 50")
 
-# --- 2. സൈഡ് ബാർ (All Tools & Rates) ---
+# --- 2. സൈഡ് ബാർ ---
 with st.sidebar:
     st.markdown("### 🚀 Paichi Pro")
     st.markdown("[💬 Contact on WhatsApp](https://wa.me/918714752210)")
@@ -72,7 +68,7 @@ with st.sidebar:
     
     st.divider()
     
-    # Gold Price (8 Gram / 1 Pawan)
+    # Gold Price
     st.write("🟡 **Gold Price (8g/1 Pawan)**")
     gold_price_per_gram = get_live_price("GC=F") 
     gold_8g_inr = (gold_price_per_gram / 31.1035) * 8 * ex_rate * 1.15 
@@ -96,7 +92,7 @@ with st.sidebar:
         if st.button("📉 MIDCAP"): st.session_state.sel_ticker = ("^NSEMDCP50", "MIDCAP 50"); st.rerun()
         if st.button("⛽ CRUDE OIL"): st.session_state.sel_ticker = ("CL=F", "CRUDE OIL"); st.rerun()
 
-# --- 3. MEIN CONTENT ---
+# --- 3. മെയിൻ കണ്ടന്റ് ---
 if mode == "MARKET":
     st.markdown(f'<p class="main-title">🚀 {st.session_state.sel_ticker[1]}</p>', unsafe_allow_html=True)
     symbol, name = st.session_state.sel_ticker
@@ -133,12 +129,10 @@ elif mode == "DASHBOARD":
         st.write(f"### Net P&L: ₹ {df['P&L'].sum():,.2f}")
         st.dataframe(df.iloc[::-1], use_container_width=True)
 
-# --- 4. GOOGLE FINANCE STYLE AI KEY MOMENTS ---
+# --- 4. KEY MOMENTS ---
 elif mode == "KEY MOMENTS":
-    st.markdown('<p class="main-title">📌 GOOGLE FINANCE AI KEY MOMENTS</p>', unsafe_allow_html=True)
-    st.write("ഏതെങ്കിലും സ്റ്റോക്ക് കോഡ് നൽകി ലേറ്റസ്റ്റ് ട്രെൻഡുകളും വാർത്തകളും AI വഴി വിശകലനം ചെയ്യുക.")
-    
-    km_ticker = st.text_input("സ്റ്റോക്ക് / ക്രിപ്റ്റോ കോഡ് നൽകുക (eg: AAPL, TSLA, BTC-USD, ^NSEI):", "^NSEI")
+    st.markdown('<p class="main-title">📌 AI KEY MOMENTS</p>', unsafe_allow_html=True)
+    km_ticker = st.text_input("സ്റ്റോക്ക് കോഡ് നൽകുക:", "^NSEI")
     
     if km_ticker:
         try:
@@ -155,38 +149,21 @@ elif mode == "KEY MOMENTS":
                 news_text = ""
                 if stock_news:
                     for n in stock_news[:5]:
-                        title = n.get('title', 'No Title Available')
-                        publisher = n.get('publisher', 'Unknown Source')
-                        news_text += f"- {title} (Source: {publisher})\n"
-                else:
-                    news_text = "പ്രത്യേകിച്ച് പുതിയ വാർത്തകൾ ഒന്നും ലഭ്യമല്ല."
+                        news_text += f"- {n.get('title')}\n"
                 
                 c1, c2 = st.columns(2)
-                c1.metric("നിലവിലെ വില", f"${latest_p:,.2f}" if "^" in km_ticker or "-" in km_ticker else f"₹ {latest_p:,.2f}")
-                c2.metric("വില വ്യത്യാസം (Daily)", f"{day_change:.2f}%")
-                
+                c1.metric("നിലവിലെ വില", f"₹ {latest_p:,.2f}")
+                c2.metric("Daily Change", f"{day_change:.2f}%")
                 st.line_chart(close_prices)
                 
                 if st.button("AI KEY MOMENTS ജനറേറ്റ് ചെയ്യുക"):
-                    with st.spinner("മാർക്കറ്റ് വിവരങ്ങൾ Google Gemini AI വിശകലനം ചെയ്യുന്നു..."):
-                        ai_prompt = f"""
-                        You are a financial analyst expert like Google Finance AI.
-                        Analyze the stock asset: '{km_ticker}'.
-                        Current Price: {latest_p:.2f}
-                        Daily Change: {day_change:.2f}%
-                        Recent News Highlights:
-                        {news_text}
-                        
-                        Create a brief section named 'Key Moments' in Malayalam. Explain why the price is moving or provide an important summary that investors must look at today. Use clear, simple Malayalam prose mixed with English financial terms if necessary.
-                        """
-                        
-                        gemini_response = call_gemini_ai(ai_prompt)
-                        
-                        st.markdown("""<style>.report-box { background-color: #ffffff; padding: 15px; border-radius: 5px; color: #111; border-left: 5px solid #FFD700; }</style>""", unsafe_allow_html=True)
-                        st.markdown(f'<div class="report-box"><b>🤖 AI അനാലിസിസ് റിപ്പോർട്ട് (Gemini Free):</b><br><br>{gemini_response}</div>', unsafe_allow_html=True)
+                    with st.spinner("വിശകലനം ചെയ്യുന്നു..."):
+                        ai_prompt = f"Analyze {km_ticker}. Price: {latest_p:.2f}, Change: {day_change:.2f}%. News: {news_text}. Give a brief Key Moments summary in Malayalam."
+                        response_text = call_openai_ai(ai_prompt)
+                        st.info(response_text)
             else:
-                st.error("ക്ഷമിക്കണം, ഈ കോഡിന്റെ മാർക്കറ്റ് വിവരങ്ങൾ ലഭ്യമായില്ല. കോഡ് മാറ്റി നോക്കൂ (eg: ^NSEI, AAPL)")
+                st.error("മാർക്കറ്റ് വിവരങ്ങൾ ലഭ്യമായില്ല.")
         except Exception as err:
-            st.error(f"Error encountered: {err}")
+            st.error(f"Error: {err}")
 
 st.markdown(f'<p style="text-align: center; color: #FFF; margin-top: 50px;">Created by <b>Faisal Arakkal</b></p>', unsafe_allow_html=True)
