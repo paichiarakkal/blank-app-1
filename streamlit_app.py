@@ -1,169 +1,164 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
-import datetime
+import requests
+from datetime import datetime
+import yfinance as yf
+import urllib.parse
 import os
-import openai
 from streamlit_autorefresh import st_autorefresh
 
-# --- OpenAI API കോൺഫിഗറേഷൻ ---
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+# --- 1. CONFIG & SETTINGS ---
+WA_PHONE = "971551347989"
+WA_API_KEY = "7463030"
 
-def call_openai_ai(prompt_text):
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt_text}]
-        )
-        return response.choices[0].message['content']
-    except Exception as e:
-        return f"Error encountered: {e}"
+USERS = {"faisal": "faisal147", "shabana": "shabana123", "admin": "paichi786"}
 
-# 1. പേജ് സെറ്റിംഗ്‌സ് & ഗോൾഡൻ തീം
-st.set_page_config(page_title="Paichi AI Trader Pro", layout="wide")
+st.set_page_config(page_title="PAICHI GOLD TRADING v8.0", layout="wide")
+# 60 സെക്കൻഡിൽ പേജ് ഓട്ടോ റിഫ്രഷ് ചെയ്യും
+st_autorefresh(interval=60000, key="auto_refresh")
 
+# --- 2. 💾 PERMANENT FILE MEMORY FUNCTION ---
+def get_stored_signal(asset_name):
+    """ഫയലിൽ സൂക്ഷിച്ചിരിക്കുന്ന പഴയ സിഗ്നൽ എടുക്കുന്നു"""
+    filename = f"sig_{asset_name.replace(' ', '_')}.txt"
+    if os.path.exists(filename):
+        with open(filename, "r") as f:
+            return f.read().strip()
+    return ""
+
+def save_signal_to_file(asset_name, signal_text):
+    """പുതിയ സിഗ്നൽ ഫയലിലേക്ക് സേവ് ചെയ്യുന്നു"""
+    filename = f"sig_{asset_name.replace(' ', '_')}.txt"
+    with open(filename, "w") as f:
+        f.write(signal_text)
+
+# --- 3. 🎨 PREMIUM DESIGN ---
 st.markdown("""
-<style>
-    .stApp { background: linear-gradient(135deg, #BF953F, #FCF6BA, #B38728, #AA771C); color: #000; }
-    section[data-testid="stSidebar"] { background: linear-gradient(180deg, #A9A9A9, #C0C0C0, #808080) !important; }
-    .stButton>button { width: 100%; border-radius: 4px; height: 2.2em; background-color: #000 !important; color: #FFD700 !important; border: 1px solid #FFD700 !important; font-size: 14px !important; font-weight: bold; margin-bottom: 2px; }
-    .main-title { color: #FFF; font-size: 26px; font-weight: 800; text-align: center; text-shadow: 2px 2px 4px #000; }
-    .info-box { background-color: #f8f9fa; padding: 10px; border-radius: 8px; color: #333; font-weight: bold; text-align: center; border: 1px solid #ddd; font-size: 14px; margin-bottom: 5px; }
-</style>
-""", unsafe_allow_html=True)
+    <style>
+    .stApp { background: linear-gradient(135deg, #2D0844, #4B0082, #1A0521); color: #fff; }
+    [data-testid="stSidebar"] { background: rgba(0,0,0,0.85) !important; }
+    .stButton>button { background-color: #FFD700; color: #000; border-radius: 10px; font-weight: bold; width: 100%; height: 50px; font-size: 18px; }
+    .terminal-banner { background: rgba(255, 255, 255, 0.05); padding: 25px; border-radius: 15px; border-left: 10px solid #FFD700; margin-bottom: 25px; text-align: center; }
+    .purple-box { background: rgba(255, 255, 255, 0.05); padding: 25px; border-radius: 25px; border: 2px solid rgba(255, 215, 0, 0.3); text-align: center; margin-bottom: 20px; }
+    h1, h2, h3, p, label { color: white !important; font-weight: bold !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
-st_autorefresh(interval=30000, key="faisal_original_app")
-FILE_NAME = 'trade_history_v2.csv'
+if 'auth' not in st.session_state: st.session_state.auth = False
+if 'user' not in st.session_state: st.session_state.user = ""
 
-# --- ഫംഗ്ഷനുകൾ ---
-def get_live_price(ticker):
+# --- 4. 🚀 CALLMEBOT ENGINE ---
+def send_callmebot_whatsapp(message_text):
+    url = f"https://api.callmebot.com/whatsapp.php?phone={WA_PHONE}&text={urllib.parse.quote(message_text)}&apikey={WA_API_KEY}"
     try:
-        data = yf.Ticker(ticker).history(period='1d', interval='1m')
-        return data['Close'].iloc[-1]
-    except: return 0.0
+        response = requests.get(url, timeout=10)
+        return response.status_code == 200
+    except:
+        return False
 
-def save_trade(symbol, action, entry_p, exit_p, qty, pnl, mood):
-    date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    df_new = pd.DataFrame([[date, symbol, action, entry_p, exit_p, qty, pnl, mood]], 
-                          columns=['Date', 'Item', 'Type', 'Entry', 'Exit', 'Qty', 'P&L', 'Mood'])
-    if not os.path.isfile(FILE_NAME): df_new.to_csv(FILE_NAME, index=False)
-    else: df_new.to_csv(FILE_NAME, mode='a', header=False, index=False)
-
-# --- സെഷൻ സ്റ്റേറ്റ് ---
-if 'sel_ticker' not in st.session_state:
-    st.session_state.sel_ticker = ("^NSEI", "NIFTY 50")
-
-# --- 2. സൈഡ് ബാർ ---
-with st.sidebar:
-    st.markdown("### 🚀 Paichi Pro")
-    st.markdown("[💬 Contact on WhatsApp](https://wa.me/918714752210)")
-    st.divider()
-    
-    # Currency Converter (AED to INR)
-    st.write("💰 **AED to INR**")
-    aed_val = st.number_input("Dirham Amount", min_value=0.0, value=1.0, step=1.0)
-    ex_rate = get_live_price("AEDINR=X")
-    if ex_rate > 0:
-        st.markdown(f'<div class="info-box" style="color:green;">₹ {aed_val * ex_rate:,.2f} INR</div>', unsafe_allow_html=True)
-    
-    st.divider()
-    
-    # Gold Price
-    st.write("🟡 **Gold Price (8g/1 Pawan)**")
-    gold_price_per_gram = get_live_price("GC=F") 
-    gold_8g_inr = (gold_price_per_gram / 31.1035) * 8 * ex_rate * 1.15 
-    st.markdown(f'<div class="info-box" style="color:#B8860B;">₹ {gold_8g_inr:,.0f} (Approx)</div>', unsafe_allow_html=True)
-    
-    # Shop Rate
-    st.write("🏪 **Shop Rate**")
-    shop_rate = st.number_input("Today's Rate", value=gold_8g_inr, step=10.0)
-    st.markdown(f'<div class="info-box">Shop: ₹ {shop_rate:,.0f}</div>', unsafe_allow_html=True)
-    
-    st.divider()
-    mode = st.radio("മെനു:", ["MARKET", "JOURNAL", "DASHBOARD", "KEY MOMENTS"])
-    st.divider()
-
-    if mode == "MARKET":
-        st.write("🎯 **Indices:**")
-        if st.button("📈 NIFTY 50"): st.session_state.sel_ticker = ("^NSEI", "NIFTY 50"); st.rerun()
-        if st.button("🏦 BANK NIFTY"): st.session_state.sel_ticker = ("^NSEBANK", "BANK NIFTY"); st.rerun()
-        if st.button("💳 FIN NIFTY"): st.session_state.sel_ticker = ("NIFTY_FIN_SERVICE.NS", "FIN NIFTY"); st.rerun()
-        if st.button("📊 SENSEX"): st.session_state.sel_ticker = ("^BSESN", "SENSEX"); st.rerun()
-        if st.button("📉 MIDCAP"): st.session_state.sel_ticker = ("^NSEMDCP50", "MIDCAP 50"); st.rerun()
-        if st.button("⛽ CRUDE OIL"): st.session_state.sel_ticker = ("CL=F", "CRUDE OIL"); st.rerun()
-
-# --- 3. മെയിൻ കണ്ടന്റ് ---
-if mode == "MARKET":
-    st.markdown(f'<p class="main-title">🚀 {st.session_state.sel_ticker[1]}</p>', unsafe_allow_html=True)
-    symbol, name = st.session_state.sel_ticker
-    price = get_live_price(symbol)
-    st.metric(label=name, value=f"₹ {price:,.2f}")
-
-elif mode == "JOURNAL":
-    st.markdown('<p class="main-title">📝 OPTION JOURNAL</p>', unsafe_allow_html=True)
-    underlying = st.selectbox("Index", ["NIFTY", "BANKNIFTY", "FINNIFTY", "CRUDE OIL"])
-    strike = st.text_input("Strike & Type", placeholder="Ex: 22400 CE")
-    st.divider()
-    col1, col2 = st.columns(2)
-    entry_raw = col1.text_input("Entry Premium", value="", placeholder="0.00")
-    exit_raw = col2.text_input("Exit Premium", value="", placeholder="0.00")
-    qty_raw = col1.text_input("Total Qty", value="", placeholder="0")
-    t_type = col2.selectbox("Order Type", ["BUY (Long)", "SELL (Short)"])
-    mood = st.selectbox("Mood", ["Calm", "Disciplined", "Fear", "Greedy"])
-
-    if st.button("SAVE OPTION TRADE"):
-        try:
-            entry = float(entry_raw) if entry_raw else 0.0
-            exit_p = float(exit_raw) if exit_raw else 0.0
-            qty = int(qty_raw) if qty_raw else 0
-            pnl = (exit_p - entry) * qty if "BUY" in t_type else (entry - exit_p) * qty
-            save_trade(f"{underlying} {strike}", t_type, entry, exit_p, qty, pnl, mood)
-            st.success(f"സേവ് ചെയ്തു! P&L: ₹{pnl:,.2f}")
-            st.rerun()
-        except: st.error("Numbers only please!")
-
-elif mode == "DASHBOARD":
-    st.markdown('<p class="main-title">📊 DASHBOARD</p>', unsafe_allow_html=True)
-    if os.path.isfile(FILE_NAME):
-        df = pd.read_csv(FILE_NAME)
-        st.write(f"### Net P&L: ₹ {df['P&L'].sum():,.2f}")
-        st.dataframe(df.iloc[::-1], use_container_width=True)
-
-# --- 4. KEY MOMENTS ---
-elif mode == "KEY MOMENTS":
-    st.markdown('<p class="main-title">📌 AI KEY MOMENTS</p>', unsafe_allow_html=True)
-    km_ticker = st.text_input("സ്റ്റോക്ക് കോഡ് നൽകുക:", "^NSEI")
-    
-    if km_ticker:
-        try:
-            stock_obj = yf.Ticker(km_ticker)
-            hist_df = stock_obj.history(period="5d")
+# --- 5. 📈 TRIPLE ADVISOR ENGINE ---
+def get_triple_advisor():
+    try:
+        symbols = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK", "Crude Fut": "CL=F"}
+        results = []
+        for name, sym in symbols.items():
+            df = yf.Ticker(sym).history(period="5d", interval="5m")
+            if df.empty: continue
+            last_p = df['Close'].iloc[-1]
+            h, l, c = df['High'].iloc[-2], df['Low'].iloc[-2], df['Close'].iloc[-2]
+            pivot = (h + l + c) / 3
+            delta = df['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rsi = 100 - (100 / (1 + (gain / loss).iloc[-1]))
             
-            if not hist_df.empty:
-                close_prices = hist_df['Close'].squeeze()
-                latest_p = close_prices.iloc[-1]
-                prev_p = close_prices.iloc[-2] if len(close_prices) > 1 else latest_p
-                day_change = ((latest_p - prev_p) / prev_p) * 100
+            if last_p > pivot and rsi > 55: signal, color, icon = "🚀 BUY", "#00FF00", "🟢"
+            elif last_p < pivot and rsi < 45: signal, color, icon = "📉 SELL", "#FF3131", "🔴"
+            else: signal, color, icon = "⚖️ WAIT", "#FFFF00", "🟡"
+            
+            if name == "Crude Fut": 
+                last_p = last_p * 83.5 * 1.15
                 
-                stock_news = stock_obj.news
-                news_text = ""
-                if stock_news:
-                    for n in stock_news[:5]:
-                        news_text += f"- {n.get('title')}\n"
-                
-                c1, c2 = st.columns(2)
-                c1.metric("നിലവിലെ വില", f"₹ {latest_p:,.2f}")
-                c2.metric("Daily Change", f"{day_change:.2f}%")
-                st.line_chart(close_prices)
-                
-                if st.button("AI KEY MOMENTS ജനറേറ്റ് ചെയ്യുക"):
-                    with st.spinner("വിശകലനം ചെയ്യുന്നു..."):
-                        ai_prompt = f"Analyze {km_ticker}. Price: {latest_p:.2f}, Change: {day_change:.2f}%. News: {news_text}. Give a brief Key Moments summary in Malayalam."
-                        response_text = call_openai_ai(ai_prompt)
-                        st.info(response_text)
-            else:
-                st.error("മാർക്കറ്റ് വിവരങ്ങൾ ലഭ്യമായില്ല.")
-        except Exception as err:
-            st.error(f"Error: {err}")
+            results.append({"name": name, "price": last_p, "signal": signal, "rsi": rsi, "color": color, "icon": icon})
+        return results
+    except:
+        return None
 
-st.markdown(f'<p style="text-align: center; color: #FFF; margin-top: 50px;">Created by <b>Faisal Arakkal</b></p>', unsafe_allow_html=True)
+# --- 6. MAIN APP ---
+if not st.session_state.auth:
+    st.markdown('<div style="text-align:center; padding-top:50px;"><h1>🔐 PAICHI TRADING BOT LOGIN</h1></div>', unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        u = st.text_input("Username").lower()
+        p = st.text_input("Password", type="password")
+        if st.button("LOGIN TO TERMINAL"):
+            if USERS.get(u) == p:
+                st.session_state.auth, st.session_state.user = True, u
+                st.rerun()
+            else: st.error("Access Denied!")
+else:
+    curr_user = st.session_state.user
+    
+    st.markdown(f'''<div class="terminal-banner">
+        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v8.5</span><br>
+        <span style="font-size:14px; color:#E0B0FF;">Welcome, {curr_user.capitalize()} | 🤖 Hard-Drive Auto-Alerts Enabled</span>
+    </div>''', unsafe_allow_html=True)
+
+    if st.sidebar.button("Logout"): 
+        st.session_state.auth = False
+        st.rerun()
+
+    markets = get_triple_advisor()
+    
+    # --- 🤖 AUTOMATIC ALERT CHECKER (PERMANENT) ---
+    if markets:
+        for m in markets:
+            asset_name = m["name"]
+            current_signal = m["signal"]
+            
+            # ഫയലിൽ നിന്നും പഴയ സിഗ്നൽ എടുക്കുന്നു
+            paya_signal = get_stored_signal(asset_name)
+            
+            # പഴയ സിഗ്നലും പുതിയ സിഗ്നലും മാറിയാൽ മാത്രം വാട്സാപ്പ് അയക്കും
+            if paya_signal != current_signal:
+                now_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                auto_msg = (
+                    f"{m['icon']} *AUTOMATIC SIGNAL ALERT* {m['icon']}\n\n"
+                    f"📦 *Asset:* {asset_name}\n"
+                    f"🚦 *New Signal:* {current_signal}\n"
+                    f"💰 *Price:* ₹{m['price']:,.2f}\n"
+                    f"📊 *RSI:* {m['rsi']:.2f}\n"
+                    f"⏰ *Time:* {now_time}\n\n"
+                    f"🤖 _Paichi Engine Auto-Notification_"
+                )
+                # CallMeBot വഴി അയക്കുന്നു
+                send_callmebot_whatsapp(auto_msg)
+                # പുതിയ സിഗ്നൽ ഫയലിലേക്ക് മാറ്റിയെഴുതുന്നു
+                save_signal_to_file(asset_name, current_signal)
+
+    # --- LIVE DISPLAY ---
+    st.subheader("Live Market Signals (Auto-Updates Every 60s)")
+    if markets:
+        cols = st.columns(3)
+        for i, m in enumerate(markets):
+            with cols[i]:
+                st.markdown(f"""<div class="purple-box" style="border-color: {m['color']} !important;">
+                    <h2 style="color:#E0B0FF !important;">{m["name"]}</h2>
+                    <h1 style="color:{m["color"]} !important; font-size:48px;">{m["signal"]}</h1>
+                    <h1 style="color:#FFD700 !important; font-size:38px;">₹{m["price"]:,.2f}</h1>
+                    <span style="color:#aaa; font-size:14px;">RSI (14): {m["rsi"]:.2f}</span>
+                </div>""", unsafe_allow_html=True)
+    else:
+        st.warning("Fetching Market Data...")
+
+    st.write("---")
+    st.subheader("Manual Backup Controls")
+    if markets:
+        selected_market = st.selectbox("Select Asset for Manual Alert", [m["name"] for m in markets])
+        market_data = next(item for item in markets if item["name"] == selected_market)
+        
+        if st.button(f"🚀 Force Send {market_data['name']} Signal"):
+            now_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            wa_msg = f"{market_data['icon']} *MANUAL SIGNAL* {market_data['icon']}\n\nAsset: {market_data['name']}\nSignal: {market_data['signal']}\nPrice: ₹{market_data['price']:,.2f}\nTime: {now_time}"
+            if send_callmebot_whatsapp(wa_msg):
+                st.success("Manual Alert Sent! ✅")
