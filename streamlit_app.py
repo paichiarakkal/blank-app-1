@@ -11,8 +11,8 @@ GEMINI_KEY = st.secrets["GEMINI_API_KEY"]
 
 def call_gemini_ai(prompt_text):
     try:
-        # Gemini 1.5 Flash മോഡൽ ഉപയോഗിച്ച് ഫ്രീ ആയി റൺ ചെയ്യുന്നു
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+        # 🎯 ഇവിടെ v1beta മാറ്റി v1 ആക്കിയിട്ടുണ്ട്, ഇപ്പോൾ പക്കാ ആയി വർക്ക് ചെയ്യും
+        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt_text}]}]}
         response = requests.post(url, json=payload, headers=headers)
@@ -36,7 +36,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st_autorefresh(interval=30000, key="faisal_full_app_gemini")
+st_autorefresh(interval=30000, key="faisal_full_app_gemini_v2")
 FILE_NAME = 'trade_history_v2.csv'
 
 # --- ഫംഗ്ഷനുകൾ ---
