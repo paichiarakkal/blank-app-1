@@ -8,9 +8,9 @@ import plotly.graph_objects as fgo
 from streamlit_autorefresh import st_autorefresh
 
 # --- 1. CONFIG & SETTINGS ---
-# നിങ്ങളുടെ ഏറ്റവും പുതിയ ടെലിഗ്രാം ടോക്കൺ ഇവിടെ സെറ്റ് ചെയ്തിട്ടുണ്ട്!
+# നിങ്ങളുടെ ഒറിജിനൽ ടോക്കണും ചാറ്റ് ഐഡിയും ഇവിടെ ഫിക്സ് ചെയ്തു ഭായ്!
 TELEGRAM_BOT_TOKEN = "8638662433:AAFZVhOjRXSkbu0UmKcOZskjoWuO271Zbc8"
-TELEGRAM_CHAT_ID = "8383114360"  # @userinfobot വഴി കിട്ടുന്ന ഐഡി ഇവിടെ നൽകുക!
+TELEGRAM_CHAT_ID = "6091133068" 
 
 USERS = {"faisal": "faisal147", "shabana": "shabana123", "admin": "paichi786"}
 LOG_FILE = "paichi_signals_log.csv"
@@ -18,8 +18,8 @@ ALERT_FILE = "paichi_price_alerts.csv"
 JOURNAL_FILE = "trade_history_v2.csv"
 POSITION_FILE = "paichi_live_positions.csv"
 
-st.set_page_config(page_title="PAICHI GOLD TRADING v12.2", layout="wide")
-st_autorefresh(interval=60000, key="auto_refresh_v12_2")
+st.set_page_config(page_title="PAICHI GOLD TRADING v12.4", layout="wide")
+st_autorefresh(interval=60000, key="auto_refresh_v12_4")
 
 # --- 2. 💾 FILE MEMORY & AUTO-PILOT FUNCTIONS ---
 def get_stored_signal(asset_name):
@@ -89,13 +89,11 @@ def manage_autopilot_execution(asset_name, signal, price, sl, t1, t2, qty):
 
 # --- 3. 📱 TELEGRAM ENGINE ---
 def send_telegram_with_inline_buttons(message_text, asset_name):
-    if "YOUR_CHAT_ID" in TELEGRAM_CHAT_ID or TELEGRAM_CHAT_ID == "ഇവിടെ_നിങ്ങളുടെ_CHAT_ID_നൽകുക": return
-    
     reply_markup = {
         "inline_keyboard": [
             [
-                {"text": "📈 View Live Chart", "url": "https://blank-app-paichi.streamlit.app/"},
-                {"text": "✅ Order Placed", "callback_data": f"done_{asset_name}"}
+                {"text": "📈 View Live Chart", "url": f"https://faisal-trader-bot.t.me"},
+                {"text": "✅ Trade Synced", "callback_data": f"done_{asset_name}"}
             ]
         ]
     }
@@ -187,8 +185,8 @@ if not st.session_state.auth:
             else: st.error("Access Denied!")
 else:
     st.markdown(f'''<div class="terminal-banner">
-        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v12.2</span><br>
-        <span style="font-size:14px; color:#9bf4ff;">🤖 TELEGRAM AUTOPILOT ACTIVE (100% Free Alerts)</span>
+        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v12.4</span><br>
+        <span style="font-size:14px; color:#9bf4ff;">🤖 TELEGRAM AUTOPILOT CONNECTED & ONLINE</span>
     </div>''', unsafe_allow_html=True)
 
     # Sidebar settings
@@ -223,10 +221,10 @@ else:
         if not positions_df.empty:
             st.dataframe(positions_df, use_container_width=True)
             if st.button("🚨 EMERGENCY SQUARE OFF ALL"):
-                os.remove(POSITION_FILE)
+                if os.path.exists(POSITION_FILE): os.remove(POSITION_FILE)
                 st.success("All bot positions closed immediately!")
                 st.rerun()
-        else: st.info("No active bot trades right now. Monitoring market for criteria setup...")
+        else: st.info("No active bot trades right now. Monitoring market...")
 
         st.write("---")
         if markets:
@@ -245,8 +243,9 @@ else:
             selected_chart = st.selectbox("View Chart:", [m["name"] for m in markets])
             m_chart_data = next(x for x in markets if x["name"] == selected_chart)
             chart_df = m_chart_data["df"]
+            
             fig = fgo.Figure(data=[fgo.Candlestick(x=chart_df.index, open=chart_df['Open'], high=chart_df['High'], low=chart_df['Low'], close=chart_df['Close'])])
-            fig.update_layout(xaxis_rangeslider_visible=False, template="plotly_dark", height=400)
+            fig.update_layout(xaxis_rangeslider_visible=False, template="plotly_dark", height=400, margin=dict(l=20, r=20, t=20, b=20))
             st.plotly_chart(fig, use_container_width=True)
 
     with tab3:
