@@ -10,7 +10,7 @@ from streamlit_autorefresh import st_autorefresh
 # --- 1. CONFIG & SETTINGS ---
 # നിങ്ങളുടെ ഏറ്റവും പുതിയ ടെലിഗ്രാം ടോക്കൺ ഇവിടെ സെറ്റ് ചെയ്തിട്ടുണ്ട്!
 TELEGRAM_BOT_TOKEN = "8638662433:AAFZVhOjRXSkbu0UmKcOZskjoWuO271Zbc8"
-TELEGRAM_CHAT_ID = "ഇവിടെ_നിങ്ങളുടെ_CHAT_ID_നൽകുക"  # @userinfobot വഴി കിട്ടുന്ന ഐഡി ഇവിടെ നൽകുക!
+TELEGRAM_CHAT_ID = "8638662433"  # @userinfobot വഴി കിട്ടുന്ന ഐഡി ഇവിടെ നൽകുക!
 
 USERS = {"faisal": "faisal147", "shabana": "shabana123", "admin": "paichi786"}
 LOG_FILE = "paichi_signals_log.csv"
