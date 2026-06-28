@@ -18,10 +18,40 @@ ALERT_FILE = "paichi_price_alerts.csv"
 JOURNAL_FILE = "trade_history_v2.csv"
 POSITION_FILE = "paichi_live_positions.csv"
 
-st.set_page_config(page_title="PAICHI GOLD TRADING v12.4", layout="wide")
-st_autorefresh(interval=60000, key="auto_refresh_v12_4")
+st.set_page_config(page_title="PAICHI GOLD TRADING v13.0", layout="wide")
+st_autorefresh(interval=60000, key="auto_refresh_v13_ultimate")
 
-# --- 2. 💾 FILE MEMORY & AUTO-PILOT FUNCTIONS ---
+# --- 2. 🤖 TELEGRAM TWO-WAY CONTROL (INBOUND) ---
+# ടെലിഗ്രാമിൽ വരുന്ന /status കമാൻഡുകൾ റീഡ് ചെയ്ത് മറുപടി അയക്കുന്ന സിസ്റ്റം
+def check_telegram_inbound_commands():
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
+    try:
+        res = requests.get(url, params={"offset": -1, "timeout": 1}, timeout=5).json()
+        if res.get("ok") and res.get("result"):
+            last_update = res["result"][-1]
+            msg = last_update.get("message", {})
+            text = msg.get("text", "").strip()
+            chat_id = str(msg.get("chat", {}).get("id", ""))
+            update_id = last_update.get("update_id")
+            
+            if chat_id == TELEGRAM_CHAT_ID and st.session_state.get("last_update_id") != update_id:
+                st.session_state.last_update_id = update_id
+                
+                if text == "/status":
+                    pos_df = get_live_positions()
+                    if pos_df.empty:
+                        reply = "💼 *PAICHI STATUS REPORT:*\n\nനിലവിൽ ആക്റ്റീവ് പൊസിഷനുകൾ ഒന്നുമില്ല ഭായ്! മാർക്കറ്റ് നിരീക്ഷിച്ചുകൊണ്ടിരിക്കുന്നു. 🕵️‍♂️"
+                    else:
+                        reply = "💼 *PAICHI ACTIVE POSITIONS:*\n\n"
+                        for _, row in pos_df.iterrows():
+                            reply += f"📦 *{row['Asset']}*\n🚦 {row['Type']}\n💰 Entry: ₹{row['EntryPrice']:.2f}\n🛑 Current SL: ₹{row['SL']:.2f}\n🎯 T1: ₹{row['T1']:.2f}\n\n"
+                    
+                    requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
+                                  json={"chat_id": TELEGRAM_CHAT_ID, "text": reply, "parse_mode": "Markdown"})
+    except:
+        pass
+
+# --- 3. 💾 FILE MEMORY & INTERFACE HELPERS ---
 def get_stored_signal(asset_name):
     filename = f"sig_{asset_name.replace(' ', '_')}.txt"
     if os.path.exists(filename):
@@ -43,33 +73,47 @@ def get_live_positions():
     if os.path.exists(POSITION_FILE): return pd.read_csv(POSITION_FILE)
     return pd.DataFrame(columns=['Asset', 'Type', 'EntryPrice', 'Qty', 'SL', 'T1', 'T2'])
 
+# --- 4. 📈 TRAILING STOP-LOSS & ADVANCED AUTOPILOT ENGINE ---
 def manage_autopilot_execution(asset_name, signal, price, sl, t1, t2, qty):
     positions = get_live_positions()
     
     if not positions.empty and asset_name in positions['Asset'].values:
-        pos = positions[positions['Asset'] == asset_name].iloc[0]
+        idx = positions[positions['Asset'] == asset_name].index[0]
+        pos = positions.loc[idx]
         closed = False
         pnl = 0.0
         
         if pos['Type'] == '🚀 BUY':
+            # Trailing SL: പ്രോഫിറ്റ് മുകളിലേക്ക് പോകുമ്പോൾ സ്റ്റോപ്പ് ലോസും തനിയെ മുകളിലേക്ക് മാറുന്നു (TSL)
+            new_sl = price - (pos['EntryPrice'] - pos['SL'])
+            if new_sl > pos['SL'] and price > pos['EntryPrice']:
+                positions.at[idx, 'SL'] = new_sl
+                positions.to_csv(POSITION_FILE, index=False)
+            
             if price >= pos['T1']:
                 closed, pnl = True, (price - pos['EntryPrice']) * pos['Qty']
-                msg_status = f"🎯 *AUTO-PILOT TARGET 1 HIT!* 🎯\n\nAsset: {asset_name}\nExit Price: ₹{price:,.2f}\nP&L: +₹{pnl:,.2f}"
-            elif price <= pos['SL']:
-                closed, pnl = True, (price - pos['EntryPrice']) * pos['Qty']
-                msg_status = f"🛑 *AUTO-PILOT STOP-LOSS HIT!* 🛑\n\nAsset: {asset_name}\nExit Price: ₹{price:,.2f}\nP&L: ₹{pnl:,.2f}"
+                msg_status = f"🎯 *AUTO-PILOT TARGET 1 HIT (BUY)!* 🎯\n\nAsset: {asset_name}\nExit Price: ₹{price:,.2f}\nP&L: +₹{pnl:,.2f}"
+            elif price <= positions.at[idx, 'SL']:
+                closed, pnl = True, (positions.at[idx, 'SL'] - pos['EntryPrice']) * pos['Qty']
+                msg_status = f"🛑 *TRAILING STOP-LOSS HIT (BUY)!* 🛑\n\nAsset: {asset_name}\nExit Price: ₹{price:,.2f}\nP&L: ₹{pnl:,.2f}"
         
         elif pos['Type'] == '📉 SELL':
+            # Trailing SL for Sell
+            new_sl = price + (pos['SL'] - pos['EntryPrice'])
+            if new_sl < pos['SL'] and price < pos['EntryPrice']:
+                positions.at[idx, 'SL'] = new_sl
+                positions.to_csv(POSITION_FILE, index=False)
+                
             if price <= pos['T1']:
                 closed, pnl = True, (pos['EntryPrice'] - price) * pos['Qty']
-                msg_status = f"🎯 *AUTO-PILOT TARGET 1 HIT!* 🎯\n\nAsset: {asset_name}\nExit Price: ₹{price:,.2f}\nP&L: +₹{pnl:,.2f}"
-            elif price >= pos['SL']:
-                closed, pnl = True, (pos['EntryPrice'] - price) * pos['Qty']
-                msg_status = f"🛑 *AUTO-PILOT STOP-LOSS HIT!* 🛑\n\nAsset: {asset_name}\nExit Price: ₹{price:,.2f}\nP&L: ₹{pnl:,.2f}"
+                msg_status = f"🎯 *AUTO-PILOT TARGET 1 HIT (SELL)!* 🎯\n\nAsset: {asset_name}\nExit Price: ₹{price:,.2f}\nP&L: +₹{pnl:,.2f}"
+            elif price >= positions.at[idx, 'SL']:
+                closed, pnl = True, (pos['EntryPrice'] - positions.at[idx, 'SL']) * pos['Qty']
+                msg_status = f"🛑 *TRAILING STOP-LOSS HIT (SELL)!* 🛑\n\nAsset: {asset_name}\nExit Price: ₹{price:,.2f}\nP&L: ₹{pnl:,.2f}"
                 
         if closed:
             date = datetime.now().strftime("%Y-%m-%d %H:%M")
-            df_j = pd.DataFrame([[date, asset_name, f"AUTO-EXIT", pos['EntryPrice'], price, pos['Qty'], pnl, "Auto-Pilot"]], 
+            df_j = pd.DataFrame([[date, asset_name, f"AUTO-EXIT", pos['EntryPrice'], price, pos['Qty'], pnl, "Auto-TSL"]], 
                                   columns=['Date', 'Item', 'Type', 'Entry', 'Exit', 'Qty', 'P&L', 'Mood'])
             if not os.path.isfile(JOURNAL_FILE): df_j.to_csv(JOURNAL_FILE, index=False)
             else: df_j.to_csv(JOURNAL_FILE, mode='a', header=False, index=False)
@@ -84,10 +128,10 @@ def manage_autopilot_execution(asset_name, signal, price, sl, t1, t2, qty):
         if positions.empty: new_pos.to_csv(POSITION_FILE, index=False)
         else: new_pos.to_csv(POSITION_FILE, mode='a', header=False, index=False)
         
-        order_msg = f"🤖 *AUTO-PILOT ORDER EXECUTED* 🤖\n\n📦 Asset: {asset_name}\n🚦 Order: {signal}\n💰 Entry Price: ₹{price:,.2f}\n🔢 Qty: {qty}\n🛑 SL: ₹{sl:,.2f}\n🎯 T1: ₹{t1:,.2f}"
+        order_msg = f"🤖 *AUTO-PILOT ORDER EXECUTED* 🤖\n\n📦 Asset: {asset_name}\n🚦 Order: {signal}\n💰 Entry Price: ₹{price:,.2f}\n🔢 Qty: {qty}\n🛑 Initial SL: ₹{sl:,.2f}\n🎯 T1: ₹{t1:,.2f}"
         send_telegram_with_inline_buttons(order_msg, asset_name)
 
-# --- 3. 📱 TELEGRAM ENGINE ---
+# --- 5. 📱 TELEGRAM ENGINE WITH BUTTONS ---
 def send_telegram_with_inline_buttons(message_text, asset_name):
     reply_markup = {
         "inline_keyboard": [
@@ -108,7 +152,67 @@ def send_telegram_with_inline_buttons(message_text, asset_name):
     try: requests.post(url, json=payload, timeout=10)
     except: pass
 
-# --- 4. 🎨 DESIGN & STYLES ---
+# --- 6. 📊 MULTI-INDICATOR SCANNERS (RSI + MACD + EMA) ---
+def calculate_indicators(df, rsi_period):
+    # RSI Calculation
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=rsi_period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_period).mean()
+    rsi = 100 - (100 / (1 + (gain / loss.replace(0, 0.00001)).iloc[-1]))
+    
+    # EMA 20 & EMA 50
+    ema20 = df['Close'].ewm(span=20, adjust=False).mean().iloc[-1]
+    ema50 = df['Close'].ewm(span=50, adjust=False).mean().iloc[-1]
+    
+    # MACD Calculation
+    exp1 = df['Close'].ewm(span=12, adjust=False).mean()
+    exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+    macd_line = exp1 - exp2
+    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+    
+    macd_val = macd_line.iloc[-1]
+    macd_sig = signal_line.iloc[-1]
+    
+    return rsi, ema20, ema50, macd_val, macd_sig
+
+def get_advanced_advisor(rsi_period, buy_level, sell_level, selected_interval):
+    try:
+        # അന്താരാഷ്ട്ര ഗോൾഡ് (GC=F) ഇതിലേക്ക് പ്രധാനമായി ചേർത്തു ഭായ്!
+        symbols = {"Paichi Gold (USD)": "GC=F", "Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK", "Crude Fut": "CL=F"}
+        results = []
+        history_period = "5d" if selected_interval in ["5m", "15m"] else "1mo"
+        
+        for name, sym in symbols.items():
+            df = yf.Ticker(sym).history(period=history_period, interval=selected_interval)
+            if df.empty: continue
+            
+            last_p = df['Close'].iloc[-1]
+            h, l, c = df['High'].iloc[-2], df['Low'].iloc[-2], df['Close'].iloc[-2]
+            
+            pivot = (h + l + c) / 3
+            r1, r2, s1, s2 = (2*pivot)-l, pivot+(h-l), (2*pivot)-h, pivot-(h-l)
+            
+            rsi, ema20, ema50, macd_val, macd_sig = calculate_indicators(df, rsi_period)
+            
+            # കറൻസി കൺവേർഷൻ ഫോർ ക്രൂഡ് ഓയിൽ & ഗോൾഡ്
+            if name in ["Crude Fut", "Paichi Gold (USD)"]:
+                last_p, pivot, r1, r2, s1, s2, ema20 = [x * 83.5 for x in [last_p, pivot, r1, r2, s1, s2, ema20]]
+
+            # 🛠️ MULTI-INDICATOR STRATEGY CONFIRMATION
+            # Buy: Price > EMA20, EMA20 > EMA50, RSI > buy_level, MACD > Signal Line
+            if last_p > ema20 and ema20 > ema50 and rsi > buy_level and macd_val > macd_sig:
+                signal, color, icon, t1, t2, sl = "🚀 BUY", "#00FF00", "🟢", r1, r2, s1
+            # Sell: Price < EMA20, EMA20 < EMA50, RSI < sell_level, MACD < Signal Line
+            elif last_p < ema20 and ema20 < ema50 and rsi < sell_level and macd_val < macd_sig:
+                signal, color, icon, t1, t2, sl = "📉 SELL", "#FF3131", "🔴", s1, s2, r1
+            else:
+                signal, color, icon, t1, t2, sl = "⚖️ WAIT", "#FFFF00", "🟡", 0, 0, 0
+                
+            results.append({"name": name, "price": last_p, "signal": signal, "rsi": rsi, "color": color, "icon": icon, "t1": t1, "t2": t2, "sl": sl, "df": df})
+        return results
+    except: return None
+
+# --- 7. 🎨 DESIGN & STYLES ---
 st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #05000c, #10001e, #020005); color: #fff; }
@@ -123,57 +227,7 @@ st.markdown("""
 if 'auth' not in st.session_state: st.session_state.auth = False
 if 'user' not in st.session_state: st.session_state.user = ""
 
-# --- 5. 📊 TECHNICAL ANALYSIS ENGINE ---
-def get_supertrend_and_indicators(df, rsi_period):
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=rsi_period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_period).mean()
-    rsi = 100 - (100 / (1 + (gain / loss.replace(0, 0.00001)).iloc[-1]))
-    ema20 = df['Close'].ewm(span=20, adjust=False).mean()
-    
-    high, low, close = df['High'], df['Low'], df['Close']
-    tr = pd.concat([high - low, abs(high - close.shift()), abs(low - close.shift())], axis=1).max(axis=1)
-    atr = tr.rolling(window=10).mean()
-    hl2 = (high + low) / 2
-    upper_band = hl2 + (3 * atr)
-    
-    trend = 1
-    for i in range(1, len(df)):
-        if close.iloc[i] < upper_band.iloc[i-1]: trend = -1
-    return rsi, ema20.iloc[-1], trend
-
-def get_advanced_advisor(rsi_period, buy_level, sell_level, selected_interval):
-    try:
-        symbols = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK", "Crude Fut": "CL=F"}
-        results = []
-        history_period = "5d" if selected_interval in ["5m", "15m"] else "1mo"
-        
-        for name, sym in symbols.items():
-            df = yf.Ticker(sym).history(period=history_period, interval=selected_interval)
-            if df.empty: continue
-            
-            last_p = df['Close'].iloc[-1]
-            h, l, c = df['High'].iloc[-2], df['Low'].iloc[-2], df['Close'].iloc[-2]
-            
-            pivot = (h + l + c) / 3
-            r1, r2, s1, s2 = (2*pivot)-l, pivot+(h-l), (2*pivot)-h, pivot-(h-l)
-            rsi, ema20_val, trend = get_supertrend_and_indicators(df, rsi_period)
-            
-            if name == "Crude Fut":
-                last_p, pivot, r1, r2, s1, s2, ema20_val = [x * 83.5 * 1.15 for x in [last_p, pivot, r1, r2, s1, s2, ema20_val]]
-
-            if last_p > pivot and rsi > buy_level and last_p > ema20_val and trend == 1:
-                signal, color, icon, t1, t2, sl = "🚀 BUY", "#00FF00", "🟢", r1, r2, s1
-            elif last_p < pivot and rsi < sell_level and last_p < ema20_val and trend == -1:
-                signal, color, icon, t1, t2, sl = "📉 SELL", "#FF3131", "🔴", s1, s2, r1
-            else:
-                signal, color, icon, t1, t2, sl = "⚖️ WAIT", "#FFFF00", "🟡", 0, 0, 0
-                
-            results.append({"name": name, "price": last_p, "signal": signal, "rsi": rsi, "color": color, "icon": icon, "t1": t1, "t2": t2, "sl": sl, "df": df})
-        return results
-    except: return None
-
-# --- 6. MAIN INTERFACE ---
+# --- 8. MAIN INTERFACE CONTROLLER ---
 if not st.session_state.auth:
     st.markdown('<div style="text-align:center; padding-top:50px;"><h1>🔐 PAICHI BOT SIGN-IN</h1></div>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -185,9 +239,12 @@ if not st.session_state.auth:
             else: st.error("Access Denied!")
 else:
     st.markdown(f'''<div class="terminal-banner">
-        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v12.4</span><br>
-        <span style="font-size:14px; color:#9bf4ff;">🤖 TELEGRAM AUTOPILOT CONNECTED & ONLINE</span>
+        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v13.0</span><br>
+        <span style="font-size:14px; color:#9bf4ff;">🤖 GOLD & MULTI-INDICATOR ULTIMATE AUTOPILOT ACTIVE</span>
     </div>''', unsafe_allow_html=True)
+
+    # ബാക്ക്ഗ്രൗണ്ടിൽ ടെലിഗ്രാം കമാൻഡുകൾ റൺ ചെയ്യുന്നു
+    check_telegram_inbound_commands()
 
     # Sidebar settings
     st.sidebar.markdown("<h2>🛠️ Settings</h2>", unsafe_allow_html=True)
@@ -216,7 +273,7 @@ else:
     tab1, tab2, tab3, tab4 = st.tabs(["🤖 LIVE AUTOPILOT POSITIONS", "📊 CHARTS", "📋 LOGS & JOURNAL", "🔔 PRICE ALERTS"])
 
     with tab1:
-        st.subheader("💼 Active Auto-Pilot Bot Positions")
+        st.subheader("💼 Active Trailing Stop-Loss Positions")
         positions_df = get_live_positions()
         if not positions_df.empty:
             st.dataframe(positions_df, use_container_width=True)
@@ -224,11 +281,11 @@ else:
                 if os.path.exists(POSITION_FILE): os.remove(POSITION_FILE)
                 st.success("All bot positions closed immediately!")
                 st.rerun()
-        else: st.info("No active bot trades right now. Monitoring market...")
+        else: st.info("No active bot trades right now. Multi-indicator scanning in progress...")
 
         st.write("---")
         if markets:
-            cols = st.columns(3)
+            cols = st.columns(len(markets))
             for i, m in enumerate(markets):
                 with cols[i]:
                     st.markdown(f"""<div class="purple-box" style="border-color: {m['color']} !important;">
