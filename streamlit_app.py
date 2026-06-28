@@ -8,20 +8,22 @@ import plotly.graph_objects as fgo
 from streamlit_autorefresh import st_autorefresh
 
 # --- 1. CONFIG & SETTINGS ---
-TELEGRAM_BOT_TOKEN = "8894050413:AAHLuvE68UCPKOdi7mFbfwY6YP4W8711qes"
-TELEGRAM_CHAT_ID = "6091133068" 
+# Streamlit Secrets-ൽ നിന്ന് സുരക്ഷിതമായി ഡാറ്റ റീഡ് ചെയ്യുന്നു
+TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
 
-USERS = {"faisal": "faisal147", "shabana": "shabana123", "admin": "paichi786"}
+# USERS ഡിക്‌ഷ്ണറി secrets-ൽ നിന്ന് എടുക്കുന്നു
+USERS = dict(st.secrets["USERS"])
+
 LOG_FILE = "paichi_signals_log.csv"
 ALERT_FILE = "paichi_price_alerts.csv"
 JOURNAL_FILE = "trade_history_v2.csv"
 POSITION_FILE = "paichi_live_positions.csv"
 
-st.set_page_config(page_title="PAICHI GOLD TRADING v13.0", layout="wide")
-st_autorefresh(interval=60000, key="auto_refresh_v13")
+st.set_page_config(page_title="PAICHI GOLD TRADING v13.5", layout="wide")
+st_autorefresh(interval=60000, key="auto_refresh_v13_5")
 
 # --- 2. 🤖 TELEGRAM TWO-WAY CONTROL (INBOUND) ---
-# ഈ ഫങ്ക്ഷൻ ടെലിഗ്രാമിൽ വരുന്ന /status കമാൻഡുകൾ റീഡ് ചെയ്ത് മറുപടി അയക്കും
 def check_telegram_inbound_commands():
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
     try:
@@ -33,7 +35,6 @@ def check_telegram_inbound_commands():
             chat_id = str(msg.get("chat", {}).get("id", ""))
             update_id = last_update.get("update_id")
             
-            # പഴയ മെസ്സേജുകൾ ആവർത്തിക്കാതിരിക്കാൻ സെഷൻ സ്റ്റേറ്റ് ലോക്ക്
             if chat_id == TELEGRAM_CHAT_ID and st.session_state.get("last_update_id") != update_id:
                 st.session_state.last_update_id = update_id
                 
@@ -46,10 +47,9 @@ def check_telegram_inbound_commands():
                         for _, row in pos_df.iterrows():
                             reply += f"📦 *{row['Asset']}*\n🚦 {row['Type']}\n💰 Entry: ₹{row['EntryPrice']:.2f}\n🛑 Current SL: ₹{row['SL']:.2f}\n🎯 T1: ₹{row['T1']:.2f}\n\n"
                     
-                    # മറുപടി ടെലിഗ്രാമിലേക്ക് അയക്കുന്നു
                     requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
                                   json={"chat_id": TELEGRAM_CHAT_ID, "text": reply, "parse_mode": "Markdown"})
-    except:
+    except Exception:
         pass
 
 # --- 3. 💾 FILE MEMORY & INTERFACE HELPERS ---
@@ -78,13 +78,11 @@ def manage_autopilot_execution(asset_name, signal, price, sl, t1, t2, qty):
         pnl = 0.0
         
         if pos['Type'] == '🚀 BUY':
-            # Trailing SL: പ്രോഫിറ്റ് മുകളിലേക്ക് പോകുമ്പോൾ സ്റ്റോപ്പ് ലോസും തനിയെ മുകളിലേക്ക് മാറ്റുന്നു (TSL)
             new_sl = price - (pos['EntryPrice'] - pos['SL'])
             if new_sl > pos['SL'] and price > pos['EntryPrice']:
                 positions.at[idx, 'SL'] = new_sl
                 positions.to_csv(POSITION_FILE, index=False)
             
-            # Exit Conditions
             if price >= pos['T1']:
                 closed, pnl = True, (price - pos['EntryPrice']) * pos['Qty']
                 msg_status = f"🎯 *TARGET 1 HIT (BUY)!* 🎯\n\nAsset: {asset_name}\nExit Price: ₹{price:,.2f}\nP&L: +₹{pnl:,.2f}"
@@ -93,9 +91,8 @@ def manage_autopilot_execution(asset_name, signal, price, sl, t1, t2, qty):
                 msg_status = f"🛑 *TRAILING SL HIT (BUY)!* 🛑\n\nAsset: {asset_name}\nExit: ₹{price:,.2f}\nP&L: ₹{pnl:,.2f}"
         
         elif pos['Type'] == '📉 SELL':
-            # Trailing SL for Sell
             new_sl = price + (pos['SL'] - pos['EntryPrice'])
-            if new_sl < pos['SL'] and price < pos['EntryPrice']:
+            if new_sl < pos['SL'] and price < pos['Price']:
                 positions.at[idx, 'SL'] = new_sl
                 positions.to_csv(POSITION_FILE, index=False)
                 
@@ -107,7 +104,6 @@ def manage_autopilot_execution(asset_name, signal, price, sl, t1, t2, qty):
                 msg_status = f"🛑 *TRAILING SL HIT (SELL)!* 🛑\n\nAsset: {asset_name}\nExit: ₹{price:,.2f}\nP&L: ₹{pnl:,.2f}"
                 
         if closed:
-            # ജേർണലിലേക്ക് മാറ്റുന്നു
             date = datetime.now().strftime("%Y-%m-%d %H:%M")
             df_j = pd.DataFrame([[date, asset_name, "AUTO-EXIT", pos['EntryPrice'], price, pos['Qty'], pnl, "Auto-TSL"]], 
                                   columns=['Date', 'Item', 'Type', 'Entry', 'Exit', 'Qty', 'P&L', 'Mood'])
@@ -131,60 +127,62 @@ def send_telegram_signal(message_text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message_text, "parse_mode": "Markdown"}
     try: requests.post(url, json=payload, timeout=10)
-    except: pass
+    except Exception: pass
 
-# --- 5. 📊 MULTI-INDICATOR CONFIRMATION ENGINE (RSI + MACD + EMA) ---
+# --- 5. 📊 MULTI-INDICATOR CONFIRMATION ENGINE ---
 def calculate_indicators(df, rsi_period):
-    # RSI
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=rsi_period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_period).mean()
-    rsi = 100 - (100 / (1 + (gain / loss.replace(0, 0.00001)).iloc[-1]))
+    rsi_series = 100 - (100 / (1 + (gain / loss.replace(0, 0.00001))))
     
-    # EMA 20 & EMA 50
-    ema20 = df['Close'].ewm(span=20, adjust=False).mean().iloc[-1]
-    ema50 = df['Close'].ewm(span=50, adjust=False).mean().iloc[-1]
+    ema20_series = df['Close'].ewm(span=20, adjust=False).mean()
+    ema50_series = df['Close'].ewm(span=50, adjust=False).mean()
     
-    # MACD
     exp1 = df['Close'].ewm(span=12, adjust=False).mean()
     exp2 = df['Close'].ewm(span=26, adjust=False).mean()
     macd_line = exp1 - exp2
     signal_line = macd_line.ewm(span=9, adjust=False).mean()
     
-    macd_val = macd_line.iloc[-1]
-    macd_sig = signal_line.iloc[-1]
-    
-    return rsi, ema20, ema50, macd_val, macd_sig
+    return rsi_series, ema20_series, ema50_series, macd_line, signal_line
+
+def get_usd_inr_rate():
+    try:
+        return yf.Ticker("INR=X").history(period="1d")["Close"].iloc[-1]
+    except Exception:
+        return 83.5  # താൽക്കാലിക നിരക്ക്
 
 def get_advanced_advisor(rsi_period, buy_level, sell_level, selected_interval):
     try:
-        # അന്താരാഷ്ട്ര ഗോൾഡ് (GC=F) ഇതിലേക്ക് സുപ്രധാനമായി ചേർത്തു!
         symbols = {"Paichi Gold (USD)": "GC=F", "Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK", "Crude Fut": "CL=F"}
         results = []
         history_period = "5d" if selected_interval in ["5m", "15m"] else "1mo"
+        usd_rate = get_usd_inr_rate()
         
         for name, sym in symbols.items():
             df = yf.Ticker(sym).history(period=history_period, interval=selected_interval)
             if df.empty: continue
             
+            rsi_s, ema20_s, ema50_s, macd_l, sig_l = calculate_indicators(df, rsi_period)
+            df['EMA20'] = ema20_s
+            df['EMA50'] = ema50_s
+            
             last_p = df['Close'].iloc[-1]
             h, l, c = df['High'].iloc[-2], df['Low'].iloc[-2], df['Close'].iloc[-2]
             
-            # Pivot Points
             pivot = (h + l + c) / 3
             r1, r2, s1, s2 = (2*pivot)-l, pivot+(h-l), (2*pivot)-h, pivot-(h-l)
             
-            rsi, ema20, ema50, macd_val, macd_sig = calculate_indicators(df, rsi_period)
+            rsi, ema20, ema50 = rsi_s.iloc[-1], ema20_s.iloc[-1], ema50_s.iloc[-1]
+            macd_val, macd_sig = macd_l.iloc[-1], sig_l.iloc[-1]
             
-            # കറൻസി കൺവേർഷൻ ഫോർ ക്രൂഡ് ഓയിൽ & ഗോൾഡ് (പ്രദർശന ഭംഗിക്ക്)
             if name in ["Crude Fut", "Paichi Gold (USD)"]:
-                last_p, pivot, r1, r2, s1, s2, ema20 = [x * 83.5 for x in [last_p, pivot, r1, r2, s1, s2, ema20]]
+                last_p, pivot, r1, r2, s1, s2, ema20, ema50 = [x * usd_rate for x in [last_p, pivot, r1, r2, s1, s2, ema20, ema50]]
+                df['Open'] *= usd_rate; df['High'] *= usd_rate; df['Low'] *= usd_rate; df['Close'] *= usd_rate
+                df['EMA20'] *= usd_rate; df['EMA50'] *= usd_rate
 
-            # 🛠️ MULTI-INDICATOR STRATEGY CONFIRMATION
-            # Buy: Price > EMA20, EMA20 > EMA50, RSI > buy_level, MACD > Signal Line
             if last_p > ema20 and ema20 > ema50 and rsi > buy_level and macd_val > macd_sig:
                 signal, color, icon, t1, t2, sl = "🚀 BUY", "#00FF00", "🟢", r1, r2, s1
-            # Sell: Price < EMA20, EMA20 < EMA50, RSI < sell_level, MACD < Signal Line
             elif last_p < ema20 and ema20 < ema50 and rsi < sell_level and macd_val < macd_sig:
                 signal, color, icon, t1, t2, sl = "📉 SELL", "#FF3131", "🔴", s1, s2, r1
             else:
@@ -192,7 +190,8 @@ def get_advanced_advisor(rsi_period, buy_level, sell_level, selected_interval):
                 
             results.append({"name": name, "price": last_p, "signal": signal, "rsi": rsi, "color": color, "icon": icon, "t1": t1, "t2": t2, "sl": sl, "df": df})
         return results
-    except: return None
+    except Exception:
+        return None
 
 # --- 6.🎨 DESIGN & CUSTOM CSS ---
 st.markdown("""
@@ -210,7 +209,7 @@ if 'auth' not in st.session_state: st.session_state.auth = False
 
 # --- 7. INTERFACE CONTROLLER ---
 if not st.session_state.auth:
-    st.markdown('<div style="text-align:center; padding-top:50px;"><h1>🔐 PAICHI BOT v13.0 SIGN-IN</h1></div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align:center; padding-top:50px;"><h1>🔐 PAICHI BOT SIGN-IN</h1></div>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         u = st.text_input("Username").lower()
@@ -222,14 +221,12 @@ if not st.session_state.auth:
             else: st.error("Access Denied!")
 else:
     st.markdown(f'''<div class="terminal-banner">
-        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v13.0</span><br>
+        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v13.5</span><br>
         <span style="font-size:14px; color:#9bf4ff;">🤖 GOLD & MULTI-INDICATOR ULTIMATE AUTOPILOT ACTIVE</span>
     </div>''', unsafe_allow_html=True)
 
-    # ടെലിഗ്രാം കമാൻഡുകൾ ബാക്ക്ഗ്രൗണ്ടിൽ റൺ ചെയ്യുന്നു
     check_telegram_inbound_commands()
 
-    # Sidebar settings
     st.sidebar.markdown("<h2>🛠️ Ultimate Config</h2>", unsafe_allow_html=True)
     auto_pilot_on = st.sidebar.toggle("🤖 ACTIVATE AUTOPILOT WITH TSL", value=True)
     auto_qty = st.sidebar.number_input("Fixed Lot Size:", min_value=1, value=10)
@@ -249,7 +246,6 @@ else:
             if paya_signal != m["signal"]:
                 save_signal_to_file(m["name"], m["signal"])
 
-    # Tabs
     tab1, tab2, tab3 = st.tabs(["🤖 LIVE ENGINE & POSITIONS", "📊 ADVANCED CANDLESTICK CHARTS", "📋 SYSTEM LOGS"])
 
     with tab1:
@@ -281,8 +277,13 @@ else:
             m_chart_data = next(x for x in markets if x["name"] == selected_chart)
             chart_df = m_chart_data["df"]
             
-            fig = fgo.Figure(data=[fgo.Candlestick(x=chart_df.index, open=chart_df['Open'], high=chart_df['High'], low=chart_df['Low'], close=chart_df['Close'])])
-            fig.update_layout(xaxis_rangeslider_visible=False, template="plotly_dark", height=450, margin=dict(l=20, r=20, t=20, b=20))
+            fig = fgo.Figure(data=[fgo.Candlestick(
+                x=chart_df.index, open=chart_df['Open'], high=chart_df['High'], low=chart_df['Low'], close=chart_df['Close'], name="Candlestick"
+            )])
+            fig.add_trace(fgo.Scatter(x=chart_df.index, y=chart_df['EMA20'], mode='lines', name='EMA 20', line=dict(color='#ff9900', width=1.5)))
+            fig.add_trace(fgo.Scatter(x=chart_df.index, y=chart_df['EMA50'], mode='lines', name='EMA 50', line=dict(color='#00e6ff', width=1.5)))
+            
+            fig.update_layout(xaxis_rangeslider_visible=False, template="plotly_dark", height=500, margin=dict(l=20, r=20, t=20, b=20))
             st.plotly_chart(fig, use_container_width=True)
 
     with tab3:
