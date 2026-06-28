@@ -3,25 +3,23 @@ import pandas as pd
 import requests
 from datetime import datetime
 import yfinance as yf
-import urllib.parse
 import os
 import plotly.graph_objects as fgo
 from streamlit_autorefresh import st_autorefresh
 
 # --- 1. CONFIG & SETTINGS ---
-WA_PHONE = "971551347989"
-WA_API_KEY = "7463030"
-TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"
+# നിങ്ങളുടെ ഏറ്റവും പുതിയ ടെലിഗ്രാം ടോക്കൺ ഇവിടെ സെറ്റ് ചെയ്തിട്ടുണ്ട്!
+TELEGRAM_BOT_TOKEN = "8638662433:AAFZVhOjRXSkbu0UmKcOZskjoWuO271Zbc8"
+TELEGRAM_CHAT_ID = "ഇവിടെ_നിങ്ങളുടെ_CHAT_ID_നൽകുക"  # @userinfobot വഴി കിട്ടുന്ന ഐഡി ഇവിടെ നൽകുക!
 
 USERS = {"faisal": "faisal147", "shabana": "shabana123", "admin": "paichi786"}
 LOG_FILE = "paichi_signals_log.csv"
 ALERT_FILE = "paichi_price_alerts.csv"
 JOURNAL_FILE = "trade_history_v2.csv"
-POSITION_FILE = "paichi_live_positions.csv" # ഓട്ടോപൈലറ്റ് പൊസിഷനുകൾ സൂക്ഷിക്കാൻ
+POSITION_FILE = "paichi_live_positions.csv"
 
-st.set_page_config(page_title="PAICHI GOLD TRADING v12.0", layout="wide")
-st_autorefresh(interval=60000, key="auto_refresh_v12")
+st.set_page_config(page_title="PAICHI GOLD TRADING v12.2", layout="wide")
+st_autorefresh(interval=60000, key="auto_refresh_v12_2")
 
 # --- 2. 💾 FILE MEMORY & AUTO-PILOT FUNCTIONS ---
 def get_stored_signal(asset_name):
@@ -47,54 +45,72 @@ def get_live_positions():
 
 def manage_autopilot_execution(asset_name, signal, price, sl, t1, t2, qty):
     positions = get_live_positions()
-    now_time = datetime.now().strftime('%Y-%m-%d %H:%M')
     
-    # 1. നിലവിൽ ഒരു പൊസിഷൻ ഉണ്ടെങ്കിൽ അത് ക്ലോസ് ചെയ്യേണ്ടതുണ്ടോ എന്ന് നോക്കുക (Target അല്ലെങ്കിൽ StopLoss ഹിറ്റ് ആയാൽ)
     if not positions.empty and asset_name in positions['Asset'].values:
         pos = positions[positions['Asset'] == asset_name].iloc[0]
         closed = False
         pnl = 0.0
         
         if pos['Type'] == '🚀 BUY':
-            if price >= pos['T1']: # Target 1 Hit
+            if price >= pos['T1']:
                 closed, pnl = True, (price - pos['EntryPrice']) * pos['Qty']
                 msg_status = f"🎯 *AUTO-PILOT TARGET 1 HIT!* 🎯\n\nAsset: {asset_name}\nExit Price: ₹{price:,.2f}\nP&L: +₹{pnl:,.2f}"
-            elif price <= pos['SL']: # Stop Loss Hit
+            elif price <= pos['SL']:
                 closed, pnl = True, (price - pos['EntryPrice']) * pos['Qty']
                 msg_status = f"🛑 *AUTO-PILOT STOP-LOSS HIT!* 🛑\n\nAsset: {asset_name}\nExit Price: ₹{price:,.2f}\nP&L: ₹{pnl:,.2f}"
         
         elif pos['Type'] == '📉 SELL':
-            if price <= pos['T1']: # Target 1 Hit for Short Sell
+            if price <= pos['T1']:
                 closed, pnl = True, (pos['EntryPrice'] - price) * pos['Qty']
                 msg_status = f"🎯 *AUTO-PILOT TARGET 1 HIT!* 🎯\n\nAsset: {asset_name}\nExit Price: ₹{price:,.2f}\nP&L: +₹{pnl:,.2f}"
-            elif price >= pos['SL']: # Stop Loss Hit for Short Sell
+            elif price >= pos['SL']:
                 closed, pnl = True, (pos['EntryPrice'] - price) * pos['Qty']
                 msg_status = f"🛑 *AUTO-PILOT STOP-LOSS HIT!* 🛑\n\nAsset: {asset_name}\nExit Price: ₹{price:,.2f}\nP&L: ₹{pnl:,.2f}"
                 
         if closed:
-            # ജേർണലിലേക്ക് മാറ്റുക
             date = datetime.now().strftime("%Y-%m-%d %H:%M")
             df_j = pd.DataFrame([[date, asset_name, f"AUTO-EXIT", pos['EntryPrice'], price, pos['Qty'], pnl, "Auto-Pilot"]], 
                                   columns=['Date', 'Item', 'Type', 'Entry', 'Exit', 'Qty', 'P&L', 'Mood'])
             if not os.path.isfile(JOURNAL_FILE): df_j.to_csv(JOURNAL_FILE, index=False)
             else: df_j.to_csv(JOURNAL_FILE, mode='a', header=False, index=False)
             
-            # പൊസിഷൻ ഫയലിൽ നിന്ന് നീക്കുക
             positions = positions[positions['Asset'] != asset_name]
             positions.to_csv(POSITION_FILE, index=False)
-            send_whatsapp(msg_status)
+            send_telegram_with_inline_buttons(msg_status, asset_name)
             return
             
-    # 2. പുതിയ സിഗ്നൽ വരികയും നിലവിൽ ആ അസറ്റിൽ ഓർഡറുകൾ ഒന്നും ഇല്ലാതിരിക്കുകയും ചെയ്താൽ പുതിയ ട്രേഡ് എടുക്കുക
     if signal != "⚖️ WAIT" and (positions.empty or asset_name not in positions['Asset'].values):
         new_pos = pd.DataFrame([[asset_name, signal, price, qty, sl, t1, t2]], columns=positions.columns)
         if positions.empty: new_pos.to_csv(POSITION_FILE, index=False)
         else: new_pos.to_csv(POSITION_FILE, mode='a', header=False, index=False)
         
         order_msg = f"🤖 *AUTO-PILOT ORDER EXECUTED* 🤖\n\n📦 Asset: {asset_name}\n🚦 Order: {signal}\n💰 Entry Price: ₹{price:,.2f}\n🔢 Qty: {qty}\n🛑 SL: ₹{sl:,.2f}\n🎯 T1: ₹{t1:,.2f}"
-        send_whatsapp(order_msg)
+        send_telegram_with_inline_buttons(order_msg, asset_name)
 
-# --- 3. 🎨 DESIGN & STYLES ---
+# --- 3. 📱 TELEGRAM ENGINE ---
+def send_telegram_with_inline_buttons(message_text, asset_name):
+    if "YOUR_CHAT_ID" in TELEGRAM_CHAT_ID or TELEGRAM_CHAT_ID == "ഇവിടെ_നിങ്ങളുടെ_CHAT_ID_നൽകുക": return
+    
+    reply_markup = {
+        "inline_keyboard": [
+            [
+                {"text": "📈 View Live Chart", "url": "https://blank-app-paichi.streamlit.app/"},
+                {"text": "✅ Order Placed", "callback_data": f"done_{asset_name}"}
+            ]
+        ]
+    }
+    
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message_text,
+        "parse_mode": "Markdown",
+        "reply_markup": reply_markup
+    }
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    try: requests.post(url, json=payload, timeout=10)
+    except: pass
+
+# --- 4. 🎨 DESIGN & STYLES ---
 st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #05000c, #10001e, #020005); color: #fff; }
@@ -109,12 +125,7 @@ st.markdown("""
 if 'auth' not in st.session_state: st.session_state.auth = False
 if 'user' not in st.session_state: st.session_state.user = ""
 
-def send_whatsapp(message_text):
-    url = f"https://api.callmebot.com/whatsapp.php?phone={WA_PHONE}&text={urllib.parse.quote(message_text)}&apikey={WA_API_KEY}"
-    try: requests.get(url, timeout=10)
-    except: pass
-
-# --- 4. 📊 ADVANCED ENGINE ---
+# --- 5. 📊 TECHNICAL ANALYSIS ENGINE ---
 def get_supertrend_and_indicators(df, rsi_period):
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=rsi_period).mean()
@@ -164,7 +175,7 @@ def get_advanced_advisor(rsi_period, buy_level, sell_level, selected_interval):
         return results
     except: return None
 
-# --- 5. MAIN INTERFACE ---
+# --- 6. MAIN INTERFACE ---
 if not st.session_state.auth:
     st.markdown('<div style="text-align:center; padding-top:50px;"><h1>🔐 PAICHI BOT SIGN-IN</h1></div>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -176,8 +187,8 @@ if not st.session_state.auth:
             else: st.error("Access Denied!")
 else:
     st.markdown(f'''<div class="terminal-banner">
-        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v12.0</span><br>
-        <span style="font-size:14px; color:#9bf4ff;">🤖 AUTO-PILOT MODE ACTIVE (Automated Tracking & Execution Enabled)</span>
+        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v12.2</span><br>
+        <span style="font-size:14px; color:#9bf4ff;">🤖 TELEGRAM AUTOPILOT ACTIVE (100% Free Alerts)</span>
     </div>''', unsafe_allow_html=True)
 
     # Sidebar settings
