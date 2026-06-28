@@ -8,7 +8,6 @@ import plotly.graph_objects as fgo
 from streamlit_autorefresh import st_autorefresh
 
 # --- 1. CONFIG & SETTINGS ---
-# നിങ്ങളുടെ ഒറിജിനൽ ടോക്കണും ചാറ്റ് ഐഡിയും ഇവിടെ ഫിക്സ് ചെയ്തു ഭായ്!
 TELEGRAM_BOT_TOKEN = "8638662433:AAFZVhOjRXSkbu0UmKcOZskjoWuO271Zbc8"
 TELEGRAM_CHAT_ID = "6091133068" 
 
@@ -18,8 +17,25 @@ ALERT_FILE = "paichi_price_alerts.csv"
 JOURNAL_FILE = "trade_history_v2.csv"
 POSITION_FILE = "paichi_live_positions.csv"
 
-st.set_page_config(page_title="PAICHI GOLD TRADING v12.4", layout="wide")
-st_autorefresh(interval=60000, key="auto_refresh_v12_4")
+st.set_page_config(page_title="PAICHI GOLD TRADING v12.5", layout="wide")
+st_autorefresh(interval=60000, key="auto_refresh_v12_5")
+
+# --- 📱 SIMPLE TELEGRAM TEST FUNCTION ---
+# ആപ്പ് റൺ ചെയ്യുമ്പോൾ തന്നെ കണക്ഷൻ ഉണ്ടോ എന്ന് നോക്കാൻ ഒരു ടെസ്റ്റ് മെസ്സേജ് അയക്കും!
+def send_simple_test_message():
+    if "test_sent" not in st.session_state:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": "🔥 *PAICHI BOT CONNECTED!* \n\nഭായ്, ടെലിഗ്രാം കണക്ഷൻ വിജയകരമായി പൂർത്തിയായിട്ടുണ്ട്. ഇനി സിഗ്നലുകൾ കൃത്യമായി വരും!",
+            "parse_mode": "Markdown"
+        }
+        try:
+            res = requests.post(url, json=payload, timeout=10)
+            if res.status_code == 200:
+                st.session_state.test_sent = True
+        except:
+            pass
 
 # --- 2. 💾 FILE MEMORY & AUTO-PILOT FUNCTIONS ---
 def get_stored_signal(asset_name):
@@ -87,7 +103,7 @@ def manage_autopilot_execution(asset_name, signal, price, sl, t1, t2, qty):
         order_msg = f"🤖 *AUTO-PILOT ORDER EXECUTED* 🤖\n\n📦 Asset: {asset_name}\n🚦 Order: {signal}\n💰 Entry Price: ₹{price:,.2f}\n🔢 Qty: {qty}\n🛑 SL: ₹{sl:,.2f}\n🎯 T1: ₹{t1:,.2f}"
         send_telegram_with_inline_buttons(order_msg, asset_name)
 
-# --- 3. 📱 TELEGRAM ENGINE ---
+# --- 3. 📱 TELEGRAM SIGNAL ENGINE ---
 def send_telegram_with_inline_buttons(message_text, asset_name):
     reply_markup = {
         "inline_keyboard": [
@@ -181,13 +197,18 @@ if not st.session_state.auth:
         u = st.text_input("Username").lower()
         p = st.text_input("Password", type="password")
         if st.button("LOGIN"):
-            if USERS.get(u) == p: st.session_state.auth, st.session_state.user = True, u; st.rerun()
+            if USERS.get(u) == p: 
+                st.session_state.auth, st.session_state.user = True, u
+                st.rerun()
             else: st.error("Access Denied!")
 else:
     st.markdown(f'''<div class="terminal-banner">
-        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v12.4</span><br>
+        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v12.5</span><br>
         <span style="font-size:14px; color:#9bf4ff;">🤖 TELEGRAM AUTOPILOT CONNECTED & ONLINE</span>
     </div>''', unsafe_allow_html=True)
+
+    # ലോഗിൻ ചെയ്തു കഴിഞ്ഞാൽ ടെസ്റ്റ് മെസ്സേജ് ട്രിഗർ ചെയ്യും
+    send_simple_test_message()
 
     # Sidebar settings
     st.sidebar.markdown("<h2>🛠️ Settings</h2>", unsafe_allow_html=True)
