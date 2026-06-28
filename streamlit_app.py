@@ -8,12 +8,11 @@ import plotly.graph_objects as fgo
 from streamlit_autorefresh import st_autorefresh
 
 # --- 1. CONFIG & SETTINGS ---
-# Streamlit Secrets-ൽ നിന്ന് സുരക്ഷിതമായി ഡാറ്റ റീഡ് ചെയ്യുന്നു
-TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
+# ⚠️ സുരക്ഷയ്ക്കായി ഇവ streamlit secrets-ലേക്ക് മാറ്റുന്നതാണ് ഉചിതം (.streamlit/secrets.toml)
+TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "8894050413:AAHLuvE68UCPKOdi7mFbfwY6YP4W8711qes")
+TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "6091133068") 
 
-# USERS ഡിക്‌ഷ്ണറി secrets-ൽ നിന്ന് എടുക്കുന്നു
-USERS = dict(st.secrets["USERS"])
+USERS = st.secrets.get("USERS", {"faisal": "faisal147", "shabana": "shabana123", "admin": "paichi786"})
 
 LOG_FILE = "paichi_signals_log.csv"
 ALERT_FILE = "paichi_price_alerts.csv"
@@ -49,8 +48,8 @@ def check_telegram_inbound_commands():
                     
                     requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
                                   json={"chat_id": TELEGRAM_CHAT_ID, "text": reply, "parse_mode": "Markdown"})
-    except Exception:
-        pass
+    except Exception as e:
+        pass  # പ്രൊഡക്ഷനിൽ ഇഗ്നോർ ചെയ്യുന്നു
 
 # --- 3. 💾 FILE MEMORY & INTERFACE HELPERS ---
 def get_stored_signal(asset_name):
@@ -92,7 +91,7 @@ def manage_autopilot_execution(asset_name, signal, price, sl, t1, t2, qty):
         
         elif pos['Type'] == '📉 SELL':
             new_sl = price + (pos['SL'] - pos['EntryPrice'])
-            if new_sl < pos['SL'] and price < pos['Price']:
+            if new_sl < pos['SL'] and price < pos['EntryPrice']:
                 positions.at[idx, 'SL'] = new_sl
                 positions.to_csv(POSITION_FILE, index=False)
                 
@@ -127,9 +126,9 @@ def send_telegram_signal(message_text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message_text, "parse_mode": "Markdown"}
     try: requests.post(url, json=payload, timeout=10)
-    except Exception: pass
+    except: pass
 
-# --- 5. 📊 MULTI-INDICATOR CONFIRMATION ENGINE ---
+# --- 5. 📊 MULTI-INDICATOR CONFIRMATION ENGINE (RSI + MACD + EMA) ---
 def calculate_indicators(df, rsi_period):
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=rsi_period).mean()
@@ -148,9 +147,10 @@ def calculate_indicators(df, rsi_period):
 
 def get_usd_inr_rate():
     try:
-        return yf.Ticker("INR=X").history(period="1d")["Close"].iloc[-1]
-    except Exception:
-        return 83.5  # താൽക്കാലിക നിരക്ക്
+        usdinr = yf.Ticker("INR=X").history(period="1d")["Close"].iloc[-1]
+        return usdinr
+    except:
+        return 83.5  # ഫാൽബാക്ക് റേറ്റ്
 
 def get_advanced_advisor(rsi_period, buy_level, sell_level, selected_interval):
     try:
@@ -164,6 +164,8 @@ def get_advanced_advisor(rsi_period, buy_level, sell_level, selected_interval):
             if df.empty: continue
             
             rsi_s, ema20_s, ema50_s, macd_l, sig_l = calculate_indicators(df, rsi_period)
+            
+            # ചാർട്ടിൽ ലൈനുകൾ വരയ്ക്കാൻ ഇവ ഡാറ്റാഫ്രെയിമിലേക്ക് ചേർക്കുന്നു
             df['EMA20'] = ema20_s
             df['EMA50'] = ema50_s
             
@@ -178,8 +180,12 @@ def get_advanced_advisor(rsi_period, buy_level, sell_level, selected_interval):
             
             if name in ["Crude Fut", "Paichi Gold (USD)"]:
                 last_p, pivot, r1, r2, s1, s2, ema20, ema50 = [x * usd_rate for x in [last_p, pivot, r1, r2, s1, s2, ema20, ema50]]
-                df['Open'] *= usd_rate; df['High'] *= usd_rate; df['Low'] *= usd_rate; df['Close'] *= usd_rate
-                df['EMA20'] *= usd_rate; df['EMA50'] *= usd_rate
+                df['Open'] *= usd_rate
+                df['High'] *= usd_rate
+                df['Low'] *= usd_rate
+                df['Close'] *= usd_rate
+                df['EMA20'] *= usd_rate
+                df['EMA50'] *= usd_rate
 
             if last_p > ema20 and ema20 > ema50 and rsi > buy_level and macd_val > macd_sig:
                 signal, color, icon, t1, t2, sl = "🚀 BUY", "#00FF00", "🟢", r1, r2, s1
@@ -190,7 +196,7 @@ def get_advanced_advisor(rsi_period, buy_level, sell_level, selected_interval):
                 
             results.append({"name": name, "price": last_p, "signal": signal, "rsi": rsi, "color": color, "icon": icon, "t1": t1, "t2": t2, "sl": sl, "df": df})
         return results
-    except Exception:
+    except Exception as e:
         return None
 
 # --- 6.🎨 DESIGN & CUSTOM CSS ---
@@ -277,6 +283,7 @@ else:
             m_chart_data = next(x for x in markets if x["name"] == selected_chart)
             chart_df = m_chart_data["df"]
             
+            # ചാർട്ടിൽ EMA ലൈനുകൾ കൂടി ചേർക്കുന്നു
             fig = fgo.Figure(data=[fgo.Candlestick(
                 x=chart_df.index, open=chart_df['Open'], high=chart_df['High'], low=chart_df['Low'], close=chart_df['Close'], name="Candlestick"
             )])
