@@ -8,7 +8,8 @@ import plotly.graph_objects as fgo
 from streamlit_autorefresh import st_autorefresh
 
 # --- 1. CONFIG & SETTINGS ---
-TELEGRAM_BOT_TOKEN = "8638662433:AAFZVhOjRXSkbu0UmKcOZskjoWuO271Zbc8"
+# നിങ്ങളുടെ പുതിയ ബോട്ട് ടോക്കണും ചാറ്റ് ഐഡിയും ഇവിടെ കറക്റ്റ് ആയി സെറ്റ് ചെയ്തിട്ടുണ്ട്!
+TELEGRAM_BOT_TOKEN = "8894050413:AAHLuvE68UCPKOdi7mFbfwY6YP4W8711qes"
 TELEGRAM_CHAT_ID = "6091133068" 
 
 USERS = {"faisal": "faisal147", "shabana": "shabana123", "admin": "paichi786"}
@@ -17,23 +18,22 @@ ALERT_FILE = "paichi_price_alerts.csv"
 JOURNAL_FILE = "trade_history_v2.csv"
 POSITION_FILE = "paichi_live_positions.csv"
 
-st.set_page_config(page_title="PAICHI GOLD TRADING v12.5", layout="wide")
-st_autorefresh(interval=60000, key="auto_refresh_v12_5")
+st.set_page_config(page_title="PAICHI GOLD TRADING v12.7", layout="wide")
+st_autorefresh(interval=60000, key="auto_refresh_v12_7")
 
-# --- 📱 SIMPLE TELEGRAM TEST FUNCTION ---
-# ആപ്പ് റൺ ചെയ്യുമ്പോൾ തന്നെ കണക്ഷൻ ഉണ്ടോ എന്ന് നോക്കാൻ ഒരു ടെസ്റ്റ് മെസ്സേജ് അയക്കും!
-def send_simple_test_message():
-    if "test_sent" not in st.session_state:
+# --- 📱 TELEGRAM CONNECTION TEST ---
+def send_brand_new_bot_test():
+    if "final_test_sent" not in st.session_state:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
-            "text": "🔥 *PAICHI BOT CONNECTED!* \n\nഭായ്, ടെലിഗ്രാം കണക്ഷൻ വിജയകരമായി പൂർത്തിയായിട്ടുണ്ട്. ഇനി സിഗ്നലുകൾ കൃത്യമായി വരും!",
+            "text": "🚀 *PAICHI GOLD TRADING ONLINE!* \n\nഭായ്, നിങ്ങളുടെ പുതിയ ബോട്ടുമായി സിസ്റ്റം വിജയകരമായി കണക്റ്റ് ആയിട്ടുണ്ട്. ഇനി സിഗ്നലുകൾ തത്സമയം ഇവിടെ ലഭിക്കും! 🔥",
             "parse_mode": "Markdown"
         }
         try:
             res = requests.post(url, json=payload, timeout=10)
             if res.status_code == 200:
-                st.session_state.test_sent = True
+                st.session_state.final_test_sent = True
         except:
             pass
 
@@ -108,8 +108,8 @@ def send_telegram_with_inline_buttons(message_text, asset_name):
     reply_markup = {
         "inline_keyboard": [
             [
-                {"text": "📈 View Live Chart", "url": f"https://faisal-trader-bot.t.me"},
-                {"text": "✅ Trade Synced", "callback_data": f"done_{asset_name}"}
+                {"text": "📈 Open Bot", "url": "https://t.me/paichi_gold_bot"},
+                {"text": "✅ Synced", "callback_data": f"done_{asset_name}"}
             ]
         ]
     }
@@ -203,12 +203,12 @@ if not st.session_state.auth:
             else: st.error("Access Denied!")
 else:
     st.markdown(f'''<div class="terminal-banner">
-        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v12.5</span><br>
+        <span style="font-size:24px; color: #FFD700; font-weight:bold;">🚀 PAICHI AUTOMATIC TRADING TERMINAL v12.7</span><br>
         <span style="font-size:14px; color:#9bf4ff;">🤖 TELEGRAM AUTOPILOT CONNECTED & ONLINE</span>
     </div>''', unsafe_allow_html=True)
 
-    # ലോഗിൻ ചെയ്തു കഴിഞ്ഞാൽ ടെസ്റ്റ് മെസ്സേജ് ട്രിഗർ ചെയ്യും
-    send_simple_test_message()
+    # ലോഗിൻ ചെയ്യുമ്പോൾ ടെസ്റ്റ് അലേർട്ട് അയക്കും
+    send_brand_new_bot_test()
 
     # Sidebar settings
     st.sidebar.markdown("<h2>🛠️ Settings</h2>", unsafe_allow_html=True)
@@ -265,8 +265,9 @@ else:
             m_chart_data = next(x for x in markets if x["name"] == selected_chart)
             chart_df = m_chart_data["df"]
             
+            # ValueError ഫിക്സ് ചെയ്തു - ഫ്രണ്ട് എൻഡ് ലേഔട്ട് കറക്റ്റ് ആക്കി!
             fig = fgo.Figure(data=[fgo.Candlestick(x=chart_df.index, open=chart_df['Open'], high=chart_df['High'], low=chart_df['Low'], close=chart_df['Close'])])
-            fig.update_layout(xaxis_rangeslider_visible=False, template="plotly_dark", height=400, margin=dict(l=20, r=20, t=20, b=20))
+            fig.update_layout(xaxis_rangeslider_visible=False, template="plotly_dark", height=450, margin=dict(l=20, r=20, t=20, b=20))
             st.plotly_chart(fig, use_container_width=True)
 
     with tab3:
