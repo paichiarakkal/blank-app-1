@@ -8,10 +8,10 @@ import plotly.graph_objects as fgo
 from streamlit_autorefresh import st_autorefresh
 
 # --- 1. CONFIG & SETTINGS ---
-# നിങ്ങളുടെ എല്ലാ ഒറിജിനൽ ഐഡികളും വിവരങ്ങളും ഇപ്പോൾ സുരക്ഷിതമായി st.secrets-ലേക്ക് മാറ്റി
-TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
-USERS = dict(st.secrets["USERS"])
+# നിങ്ങളുടെ പുതിയ ബോട്ട് വിവരങ്ങൾ നേരിട്ട് കോഡിലേക്ക് തിരിച്ചു വെച്ചിട്ടുണ്ട് ഭായ്!
+TELEGRAM_BOT_TOKEN = "8894050413:AAHLuvE68UCPKOdi7mFbfwY6YP4W8711qes"
+TELEGRAM_CHAT_ID = "6091133068" 
+USERS = {"faisal": "faisal147", "shabana": "shabana123", "admin": "paichi786"}
 
 LOG_FILE = "paichi_signals_log.csv"
 ALERT_FILE = "paichi_price_alerts.csv"
@@ -19,7 +19,7 @@ JOURNAL_FILE = "trade_history_v2.csv"
 POSITION_FILE = "paichi_live_positions.csv"
 
 st.set_page_config(page_title="PAICHI GOLD TRADING v13.0", layout="wide")
-st_autorefresh(interval=60000, key="auto_refresh_v13")
+st_autorefresh(interval=60000, key="auto_refresh_v13_final")
 
 # --- 2. 🤖 TELEGRAM TWO-WAY CONTROL (INBOUND) ---
 def check_telegram_inbound_commands():
