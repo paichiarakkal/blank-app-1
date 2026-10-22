@@ -11,8 +11,6 @@ import re
 import urllib.parse
 import threading
 from streamlit_calendar import calendar
-import google.generativeai as genai
-from google.generativeai.types import FunctionDeclaration, Tool
 
 # --- CONFIG & SETTINGS ---
 CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRccfZch3jSdHqrScpqsR_j3FSd70NbELC1j6_nPi-MQXdrhVr3BPcKoI1nub4mQql727pQRPWYk9C-/pub?gid=1583146028&single=true&output=csv"
@@ -26,7 +24,7 @@ USER_PINS = {
     "admin": "7860"
 }
 
-# 🖼️ PERMANENT BACKGROUND PHOTO
+# 🖼️ PERMANENT BACKGROUND PHOTO FROM GITHUB
 BG_IMAGE_URL = "https://raw.githubusercontent.com/paichiarakkal/paichiarakkal/main/profile.jpg"
 
 # --- TWILIO WHATSAPP RECEIVER ---
@@ -58,7 +56,7 @@ except: pass
 st.set_page_config(page_title="PAICHI EXPENSES v3.0", layout="wide")
 st_autorefresh(interval=60000, key="auto_refresh")
 
-# INJECT CSS
+# INJECT CSS WITH PERMANENT BACKGROUND
 st.markdown(f"""
     <style>
     [data-testid="stAppViewContainer"] {{
@@ -68,25 +66,99 @@ st.markdown(f"""
         background-repeat: no-repeat;
         background-attachment: fixed;
     }}
-    [data-testid="stHeader"] {{ background-color: rgba(0,0,0,0); }}
-    [data-testid="stSidebar"] {{ background: rgba(0, 0, 0, 0.85) !important; }}
-    .stButton>button {{ background-color: #FFD700; color: #000; border-radius: 10px; font-weight: bold; width: 100%; transition: 0.3s; }}
-    .stButton>button:hover {{ background-color: #FFF; color: #000; box-shadow: 0px 0px 10px #FFD700; }}
-    .balance-banner {{ background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(10px); padding: 25px; border-radius: 15px; border-left: 10px solid #FFD700; margin-bottom: 25px; text-align: center; box-shadow: 0px 4px 15px rgba(0,0,0,0.5); }}
-    .purple-box {{ background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(10px); padding: 20px; border-radius: 25px; border: 2px solid rgba(255, 215, 0, 0.3); text-align: center; margin-bottom: 20px; }}
-    .category-box {{ background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(10px); padding: 15px; border-radius: 15px; text-align: center; border-bottom: 4px solid #FFD700; margin-bottom: 15px; }}
-    .alert-banner {{ background-color: #ff4d4d; color: white; padding: 10px; border-radius: 10px; text-align: center; font-weight: bold; margin-bottom: 20px; }}
-    .login-card {{ background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(10px); padding: 25px; border-radius: 20px; border: 1px solid rgba(255, 215, 0, 0.4); box-shadow: 0px 8px 32px 0 rgba(0, 0, 0, 0.7); max-width: 450px; margin: auto; margin-top: 30px; }}
-    .login-title {{ text-align: center; font-size: 22px; font-weight: bold; color: #FFD700 !important; margin-bottom: 15px; }}
-    h1, h2, h3, p, label {{ color: white !important; font-weight: bold !important; }}
-    .stDataFrame {{ background: white; border-radius: 10px; color: black; }}
+    [data-testid="stHeader"] {{
+        background-color: rgba(0,0,0,0);
+    }}
+    [data-testid="stSidebar"] {{
+        background: rgba(0, 0, 0, 0.85) !important;
+    }}
+    .stButton>button {{
+        background-color: #FFD700;
+        color: #000;
+        border-radius: 10px;
+        font-weight: bold;
+        width: 100%;
+        transition: 0.3s;
+    }}
+    .stButton>button:hover {{
+        background-color: #FFF;
+        color: #000;
+        box-shadow: 0px 0px 10px #FFD700;
+    }}
+    .balance-banner {{
+        background: rgba(0, 0, 0, 0.65);
+        backdrop-filter: blur(10px);
+        padding: 25px;
+        border-radius: 15px;
+        border-left: 10px solid #FFD700;
+        margin-bottom: 25px;
+        text-align: center;
+        box-shadow: 0px 4px 15px rgba(0,0,0,0.5);
+    }}
+    .purple-box {{
+        background: rgba(0, 0, 0, 0.65);
+        backdrop-filter: blur(10px);
+        padding: 20px;
+        border-radius: 25px;
+        border: 2px solid rgba(255, 215, 0, 0.3);
+        text-align: center;
+        margin-bottom: 20px;
+    }}
+    .category-box {{
+        background: rgba(0, 0, 0, 0.65);
+        backdrop-filter: blur(10px);
+        padding: 15px;
+        border-radius: 15px;
+        text-align: center;
+        border-bottom: 4px solid #FFD700;
+        margin-bottom: 15px;
+    }}
+    .alert-banner {{
+        background-color: #ff4d4d;
+        color: white;
+        padding: 10px;
+        border-radius: 10px;
+        text-align: center;
+        font-weight: bold;
+        margin-bottom: 20px;
+    }}
+    .login-card {{
+        background: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(10px);
+        padding: 25px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 215, 0, 0.4);
+        box-shadow: 0px 8px 32px 0 rgba(0, 0, 0, 0.7);
+        max-width: 450px;
+        margin: auto;
+        margin-top: 30px;
+    }}
+    .login-title {{
+        text-align: center;
+        font-size: 22px;
+        font-weight: bold;
+        color: #FFD700 !important;
+        margin-bottom: 15px;
+    }}
+    h1, h2, h3, p, label {{
+        color: white !important;
+        font-weight: bold !important;
+    }}
+    .stDataFrame {{
+        background: white;
+        border-radius: 10px;
+        color: black;
+    }}
     </style>
 """, unsafe_allow_html=True)
 
 if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user = False, ""
 
-if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Shop kuri book"
-if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
+# --- DYNAMIC APP SETTINGS ---
+if 'custom_alert_text' not in st.session_state: 
+    st.session_state.custom_alert_text = "Shop kuri book"
+if 'low_limit' not in st.session_state: 
+    st.session_state.low_limit = 6000
 
 # --- HELPER FUNCTIONS ---
 def send_whatsapp_auto(msg):
@@ -143,8 +215,10 @@ def create_pdf(df):
 # --- 🔒 PIN LOGIN SCREEN ---
 if not st.session_state.auth:
     st.markdown('<div class="login-card"><div class="login-title">🔐 PAICHI EXPENSES</div>', unsafe_allow_html=True)
+    
     u = st.selectbox("👤 Select User", ["faisal", "shabana", "admin"]).lower()
     pin = st.text_input("🔑 Enter 4-Digit PIN", type="password", max_chars=4)
+    
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("UNLOCK APP 🔓"):
         if USER_PINS.get(u) == pin:
@@ -152,8 +226,8 @@ if not st.session_state.auth:
             st.rerun()
         else:
             st.error("❌ Incorrect PIN! Try again.")
+            
     st.markdown('</div>', unsafe_allow_html=True)
-
 else:
     df = load_data()
     t_in, t_out = (df['Credit'].sum(), df['Debit'].sum()) if not df.empty else (0.0, 0.0)
@@ -180,6 +254,7 @@ else:
     if page == "🏠 Dashboard" and not df.empty:
         st.title("Financial Overview")
         st.markdown(f'<div class="purple-box"><h2 style="color:#00FF00;">Total Credit: ₹{t_in:,.2f}</h2><h2 style="color:#FF3131;">Total Debit: ₹{t_out:,.2f}</h2></div>', unsafe_allow_html=True)
+        
         st.subheader("🗂️ Categorywise Expense Breakdown")
         
         def extract_cat(x):
@@ -189,6 +264,7 @@ else:
             elif any(w in item_text for w in ["fish", "മീൻ", "ഇറച്ചി", "ചിക്കൻ", "meat"]): return "Fish"
             elif any(w in item_text for w in ["travel", "യാത്ര", "പെട്രോൾ", "വണ്ടി", "ടാക്സി", "petrol", "diesel"]): return "Travel"
             elif any(w in item_text for w in ["rent", "വാടക", "റൂം"]): return "Rent"
+            
             return x.split(']')[1].split(':')[0].strip().capitalize() if ']' in str(x) and ':' in str(x) else (str(x).split(':')[0].strip().capitalize() if ':' in str(x) else "Others")
 
         df['Cat'] = df['Item'].apply(extract_cat)
@@ -209,11 +285,13 @@ else:
             nums = re.findall(r'\d+', raw)
             v_amt = nums[0] if nums else ""
             v_desc = re.sub(r'\d+', '', raw).strip()
+            
             if any(x in raw for x in ["food", "ഭക്ഷണം", "ചായ", "ഹോട്ടൽ", "ബിരിയാണി", "mess"]): v_cat = "Food"
             elif any(x in raw for x in ["shop", "കട", "സാധനങ്ങൾ", "സൂപ്പർമാർക്കറ്റ്", "groceries"]): v_cat = "Shop"
             elif any(x in raw for x in ["fish", "മീൻ", "ഇറച്ചി", "ചിക്കൻ", "meat"]): v_cat = "Fish"
             elif any(x in raw for x in ["travel", "യാത്ര", "പെട്രോൾ", "വണ്ടി", "ടാക്സി", "petrol"]): v_cat = "Travel"
             elif any(x in raw for x in ["rent", "വാടക", "റൂം"]): v_cat = "Rent"
+            
             if any(x in raw for x in ["കിട്ടി", "വന്നു", "തന്നു", "ക്രെഡിറ്റ്", "credit"]): v_type = "Credit"
 
         with st.form("entry_form", clear_on_submit=True):
@@ -226,6 +304,7 @@ else:
                     am = float(am_str.strip().replace(',', ''))
                     payload = {"entry.1044099436": datetime.now().strftime("%Y-%m-%d"), "entry.2013476337": f"[{st.session_state.user.capitalize()}] {cat}: {it}", "entry.1460982454": am if ty=="Debit" else 0, "entry.1221658767": 0 if ty=="Debit" else am}
                     threading.Thread(target=lambda: requests.post(FORM_API, data=payload, timeout=10)).start()
+                    
                     send_whatsapp_auto(f"✅ *Paichi Entry*\n📝 Item: {it}\n💰 Amt: ₹{am}\n👤 User: {st.session_state.user}")
                     st.success("Saved! ✅"); st.rerun()
                 except: st.error("Error! Valid amount required.")
@@ -264,9 +343,12 @@ else:
             search_query = st.text_input("🔍 Search items (e.g. Fish, Petrol, Travel)...", "").strip().lower()
             filter_type = st.selectbox("Filter Type", ["All", "Debit Only", "Credit Only"])
             
-            if search_query: m_df = m_df[m_df['Item'].str.lower().str.contains(search_query, na=False)]
-            if filter_type == "Debit Only": m_df = m_df[m_df['Debit'] > 0]
-            elif filter_type == "Credit Only": m_df = m_df[m_df['Credit'] > 0]
+            if search_query:
+                m_df = m_df[m_df['Item'].str.lower().str.contains(search_query, na=False)]
+            if filter_type == "Debit Only":
+                m_df = m_df[m_df['Debit'] > 0]
+            elif filter_type == "Credit Only":
+                m_df = m_df[m_df['Credit'] > 0]
 
             m_deb, m_crd = m_df['Debit'].sum(), m_df['Credit'].sum()
             
@@ -301,48 +383,3 @@ else:
     elif page == "🤝 Debt Tracker":
         st.title("🤝 Debt Tracker & Summary")
         st.info("ഇവിടെ നിങ്ങളുടെ കടം വാങ്ങിയതും നൽകിയതുമായ വിവരങ്ങൾ കാണാം.")
-
-    # ============================================
-    # 🤖 SMART AI AGENT 
-    # ============================================
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🤖 Ask AI Agent")
-    
-    try:
-        GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-    except:
-        GEMINI_API_KEY = "" 
-
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    def ai_add_entry(amount: float, category: str, description: str, type: str = "Debit"):
-        try:
-            payload = {
-                "entry.1044099436": datetime.now().strftime("%Y-%m-%d"), 
-                "entry.2013476337": f"[{st.session_state.user.capitalize()}] {category}: {description}", 
-                "entry.1460982454": amount if type == "Debit" else 0, 
-                "entry.1221658767": 0 if type == "Debit" else amount
-            }
-            requests.post(FORM_API, data=payload, timeout=10)
-            send_whatsapp_auto(f"✅ *Auto Entry Added via AI*\n📝 {description}\n💰 ₹{amount}\n🗂️ {category}")
-            return "Success"
-        except: return "Error"
-
-    def ai_send_whatsapp(message: str):
-        try:
-            send_whatsapp_auto(message)
-            return "Success"
-        except: return "Error"
-
-    tools = [
-        Tool(
-            function_declarations=[
-                FunctionDeclaration(
-                    name="ai_add_entry",
-                    description="Add a new expense or income to the database.",
-                    parameters={
-                        "type": "OBJECT",
-                        "properties": {
-                            "amount": {"type": "NUMBER", "description": "Amount spent."},
-                            "category": {"type": "STRING", "description": "Food, Shop, Travel, etc
