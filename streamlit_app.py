@@ -1,5 +1,5 @@
 import streamlit as 
-import google.generativeai as
+import google.generativeai as genai
 import pandas as pd
 import requests
 from datetime import datetime
