@@ -1,6 +1,10 @@
-streamlit
-pandas
-requests
-yfinance
-streamlit-autorefresh
-plotly
+streamlit>=1.32.0
+pandas>=2.0.0
+requests>=2.31.0
+plotly>=5.18.0
+streamlit-mic-recorder>=0.0.4
+streamlit-autorefresh>=1.0.1
+streamlit-calendar>=1.1.1
+fpdf2>=2.7.9
+twilio>=8.10.0
+google-generativeai>=0.3.0
