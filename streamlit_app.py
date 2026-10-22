@@ -464,7 +464,7 @@ if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     # 'gemini-1.5-flash' ആണ് നിങ്ങളുടെ ഫോണിൽ ഉള്ളത്
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
+        model_name="gemini-3.8-flash",
         tools=tools,
         system_instruction="നീയാണ് PAICHI EXPENSES എന്ന ആപ്പിന്റെ AI മാനേജർ. യൂസർ ചെലവ് ചേർക്കാൻ പറഞ്ഞാൽ 'ai_add_entry' ടൂൾ ഉപയോഗിക്കണം. വാട്സാപ്പിൽ മെസ്സേജ് അയക്കാൻ പറഞ്ഞാൽ 'ai_send_whatsapp' ടൂൾ ഉപയോഗിക്കണം."
     )
