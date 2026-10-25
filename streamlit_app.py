@@ -384,133 +384,56 @@ else:
     elif page == "🤝 Debt Tracker":
         st.title("🤝 Debt Tracker & Summary")
         st.info("ഇവിടെ നിങ്ങളുടെ കടം വാങ്ങിയതും നൽകിയതുമായ വിവരങ്ങൾ കാണാം.")
-# ============================================
-# 🤖 SMART AI AGENT (Using your existing Gemini Model)
-# ============================================
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("🤖 Paichi Smart Agent")
+    # ============================================
+    # 🤖 AI AGENT CHATBOT (FULL IMPLEMENTATION)
+    # ============================================
 
-# നിങ്ങളുടെ API Key ഇവിടെ നൽകുക (അല്ലെങ്കിൽ st.secrets-ൽ നിന്ന് എടുക്കാം)
-# GEMINI_API_KEY = "YOUR_API_KEY_HERE" 
-if "GEMINI_API_KEY" in st.secrets:
-    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-else:
-    GEMINI_API_KEY = "" # നിങ്ങളുടെ ഫോണിലെ API Key ഇവിടെ കോപ്പി ചെയ്യുക
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🤖 Ask AI Agent")
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 
-# --- AI ഏജന്റിന് നൽകുന്ന ടൂളുകൾ (Tools) ---
-# നിങ്ങളുടെ ആപ്പിൽ ഇപ്പോൾ ഉള്ള ഫംഗ്ഷനുകൾ തന്നെയാണ് ഇവിടെയും ഉപയോഗിക്കുന്നത്
-def ai_add_entry(amount: float, category: str, description: str, type: str = "Debit"):
-    try:
-        payload = {
-            "entry.1044099436": datetime.now().strftime("%Y-%m-%d"), 
-            "entry.2013476337": f"[{st.session_state.user.capitalize()}] {category}: {description}", 
-            "entry.1460982454": amount if type == "Debit" else 0, 
-            "entry.1221658767": 0 if type == "Debit" else amount
-        }
-        requests.post(FORM_API, data=payload, timeout=10)
-        send_whatsapp_auto(f"✅ *Auto Entry Added*\n📝 {description}\n💰 ₹{amount}\n🗂️ {category}")
-        return "Success"
-    except:
-        return "Error"
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
-def ai_send_whatsapp(message: str):
-    try:
-        send_whatsapp_auto(message)
-        return "Success"
-    except:
-        return "Error"
+    for message in st.session_state.messages:
+        with st.sidebar.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-# Gemini-ക്ക് ഈ ടൂളുകൾ മനസ്സിലാകുന്ന രീതിയിൽ (JSON Format) നിർവചിക്കുന്നു
-from google.generativeai.types import FunctionDeclaration, Tool
+    if prompt := st.sidebar.chat_input("Ask about your expenses..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.sidebar.chat_message("user"):
+            st.markdown(prompt)
 
-tools = [
-    Tool(
-        function_declarations=[
-            FunctionDeclaration(
-                name="ai_add_entry",
-                description="Add a new expense or income to the database.",
-                parameters={
-                    "type": "OBJECT",
-                    "properties": {
-                        "amount": {"type": "NUMBER", "description": "Amount spent or received."},
-                        "category": {"type": "STRING", "description": "Food, Shop, Travel, etc."},
-                        "description": {"type": "STRING", "description": "Details like 'Tea' or 'Petrol'."},
-                        "type": {"type": "STRING", "description": "Debit or Credit."}
-                    },
-                    "required": ["amount", "category", "description"]
-                }
-            ),
-            FunctionDeclaration(
-                name="ai_send_whatsapp",
-                description="Send a WhatsApp message to the user.",
-                parameters={
-                    "type": "OBJECT",
-                    "properties": {
-                        "message": {"type": "STRING", "description": "Message content."}
-                    },
-                    "required": ["message"]
-                }
-            )
-        ]
-    )
-]
-
-# നിങ്ങളുടെ ഫോണിലുള്ള മോഡൽ ലോഡ് ചെയ്യുന്നു
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    # 'gemini-1.5-flash' ആണ് നിങ്ങളുടെ ഫോണിൽ ഉള്ളത്
-    model = genai.GenerativeModel(
-        model_name="gemini-3.8-flash",
-        tools=tools,
-        system_instruction="നീയാണ് PAICHI EXPENSES എന്ന ആപ്പിന്റെ AI മാനേജർ. യൂസർ ചെലവ് ചേർക്കാൻ പറഞ്ഞാൽ 'ai_add_entry' ടൂൾ ഉപയോഗിക്കണം. വാട്സാപ്പിൽ മെസ്സേജ് അയക്കാൻ പറഞ്ഞാൽ 'ai_send_whatsapp' ടൂൾ ഉപയോഗിക്കണം."
-    )
-else:
-    st.sidebar.warning("⚠️ API Key നൽകിയിട്ടില്ല.")
-
-# --- ചാറ്റ് ഇന്റർഫേസ് ---
-for message in st.session_state.messages:
-    with st.sidebar.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-if prompt := st.sidebar.chat_input("Ask or give a command..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.sidebar.chat_message("user"):
-        st.markdown(prompt)
-
-    if GEMINI_API_KEY:
         with st.sidebar.chat_message("assistant"):
-            with st.spinner("Thinking..."):
+            if df.empty:
+                st.warning("ഡാറ്റ ലഭ്യമല്ല.")
+            else:
                 try:
-                    response = model.generate_content(prompt)
+                    summary_context = f"""
+                    You are an intelligent financial assistant for Paichi Expenses app.
+                    User data summary:
+                    - Total Credit (Income): ₹{t_in:,.2f}
+                    - Total Debit (Expense): ₹{t_out:,.2f}
+                    - Current Available Balance: ₹{bal:,.2f}
                     
-                    # AI ടൂൾ വിളിക്കാൻ തീരുമാനിച്ചോ എന്ന് പരിശോധിക്കുന്നു
-                    if response.candidates[0].content.parts[0].function_call:
-                        func_call = response.candidates[0].content.parts[0].function_call
-                        func_name = func_call.name
-                        args = func_call.args
-                        
-                        st.write(f"⚙️ *Working on: {func_name}*")
-                        
-                        if func_name == "ai_add_entry":
-                            ai_add_entry(args["amount"], args["category"], args["description"], args.get("type", "Debit"))
-                            reply = f"ശരി, {args['description']} ന് {args['amount']} ചേർത്തിട്ടുണ്ട്! ✅"
-                        elif func_name == "ai_send_whatsapp":
-                            ai_send_whatsapp(args["message"])
-                            reply = "വാട്സാപ്പിൽ മെസ്സേജ് അയച്ചു! 📱"
-                        else:
-                            reply = "എനിക്ക് അത് ചെയ്യാൻ സാധിക്കില്ല."
-                            
-                        st.markdown(reply)
-                        st.session_state.messages.append({"role": "assistant", "content": reply})
+                    Recent 10 Transactions:
+                    {df[['Date', 'Item', 'Debit', 'Credit']].tail(10).to_string(index=False)}
                     
+                    Answer the user's question concisely in Malayalam or English based on the language used.
+                    User Question: {prompt}
+                    """
+                    
+                    if GEMINI_API_KEY:
+                        genai.configure(api_key=GEMINI_API_KEY)
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        response = model.generate_content(summary_context)
+                        reply_text = response.text
                     else:
-                        # ടൂൾ വേണ്ടെങ്കിൽ സാധാരണ മറുപടി
-                        st.markdown(response.text)
-                        st.session_state.messages.append({"role": "assistant", "content": response.text})
-                        
+                        reply_text = f"📊 *Quick Status*:\n- Balance: ₹{bal:,.2f}\n- Total Spent: ₹{t_out:,.2f}\n(API Key നൽകാത്തതിനാൽ വിശദമായ വിവരങ്ങൾക്ക് Secrets സജ്ജീകരിക്കുക)."
+
+                    st.markdown(reply_text)
+                    st.session_state.messages.append({"role": "assistant", "content": reply_text})
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Error handling AI query: {str(e)}")
