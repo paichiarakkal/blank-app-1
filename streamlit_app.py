@@ -258,7 +258,7 @@ else:
                 with st.spinner("AI ആലോചിക്കുന്നു..."):
                     try:
                         genai.configure(api_key=GEMINI_API_KEY)
-                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        model = genai.GenerativeModel('gemini-3.8-flash')
                         
                         df_summary = df[['Date', 'Item', 'Debit', 'Credit']].tail(50).to_string()
                         
