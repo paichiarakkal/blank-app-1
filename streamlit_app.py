@@ -297,7 +297,7 @@ else:
             with st.sidebar.spinner("AI ചിന്തിക്കുന്നു..."):
                 try:
                     genai.configure(api_key=st.secrets.get("GEMINI_API_KEY", ""))
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-3.8-flash')
                     df_summary = df[['Item', 'Debit', 'Credit']].tail(20).to_string()
                     res = model.generate_content(f"Data: {df_summary}\nBalance: {bal}\nQuestion: {sidebar_prompt}\nAnswer in Malayalam.")
                     st.sidebar.success(res.text)
