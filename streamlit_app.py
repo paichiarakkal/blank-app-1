@@ -1,5 +1,4 @@
 import streamlit as st
-import google.generativeai as genai
 import pandas as pd
 import requests
 from datetime import datetime
@@ -12,52 +11,25 @@ import re
 import urllib.parse
 import threading
 from streamlit_calendar import calendar
+import google.generativeai as genai  # AI ചാറ്റിന് വേണ്ടി
 
 # --- CONFIG & SETTINGS ---
 CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRccfZch3jSdHqrScpqsR_j3FSd70NbELC1j6_nPi-MQXdrhVr3BPcKoI1nub4mQql727pQRPWYk9C-/pub?gid=1583146028&single=true&output=csv"
 FORM_API = "https://docs.google.com/forms/d/e/1FAIpQLSfLySolQSiRXV0wELNPhUBlKJh77RnJKWc2-uqAM0TPNG3Q5A/formResponse"
 WA_PHONE, WA_API_KEY = "971551347989", "7463030"
 
-# 🔑 USERS & 4-DIGIT PIN SETTINGS
 USER_PINS = {
     "faisal": "1470",
     "shabana": "1230",
     "admin": "7860"
 }
 
-# 🖼️ PERMANENT BACKGROUND PHOTO FROM GITHUB
 BG_IMAGE_URL = "https://raw.githubusercontent.com/paichiarakkal/paichiarakkal/main/profile.jpg"
 
-# --- TWILIO WHATSAPP RECEIVER ---
-try:
-    from flask import Flask, request
-    from twilio.twiml.messaging_response import MessagingResponse
-    flask_app = Flask(__name__)
-
-    @flask_app.route("/whatsapp", methods=['POST'])
-    def whatsapp_reply():
-        incoming = request.values.get('Body', '').lower().strip()
-        resp = MessagingResponse()
-        msg = resp.message()
-        if "balance" in incoming or "ബാലൻസ്" in incoming:
-            try:
-                df = pd.read_csv(f"{CSV_URL}&r={random.randint(1,999)}")
-                t_in = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0).sum()
-                t_out = pd.to_numeric(df.iloc[:, 2], errors='coerce').fillna(0).sum()
-                msg.body(f"📊 *Paichi Finance Update*\n\n💰 Total Credit: ₹{t_in:,.2f}\n📉 Total Debit: ₹{t_out:,.2f}\n💵 *Available Balance: ₹{t_in - t_out:,.2f}*")
-            except: msg.body("⚠️ ഡാറ്റ എടുക്കാൻ കഴിഞ്ഞില്ല.")
-        else: msg.body("🤖 ഹലോ! ബാലൻസ് അറിയാൻ *Balance* എന്ന് അയക്കൂ.")
-        return str(resp)
-
-    if not any(t.name == "FlaskThread" for t in threading.enumerate()):
-        threading.Thread(target=lambda: flask_app.run(port=5000, host="0.0.0.0", debug=False, use_reloader=False), name="FlaskThread", daemon=True).start()
-except: pass
-
 # --- STREAMLIT UI SETUP ---
-st.set_page_config(page_title="PAICHI EXPENSES v3.0", layout="wide")
+st.set_page_config(page_title="PAICHI EXPENSES", layout="wide")
 st_autorefresh(interval=60000, key="auto_refresh")
 
-# INJECT CSS WITH PERMANENT BACKGROUND
 st.markdown(f"""
     <style>
     [data-testid="stAppViewContainer"] {{
@@ -67,99 +39,32 @@ st.markdown(f"""
         background-repeat: no-repeat;
         background-attachment: fixed;
     }}
-    [data-testid="stHeader"] {{
-        background-color: rgba(0,0,0,0);
-    }}
-    [data-testid="stSidebar"] {{
-        background: rgba(0, 0, 0, 0.85) !important;
-    }}
+    [data-testid="stHeader"] {{ background-color: rgba(0,0,0,0); }}
+    [data-testid="stSidebar"] {{ background: rgba(0, 0, 0, 0.85) !important; }}
     .stButton>button {{
-        background-color: #FFD700;
-        color: #000;
-        border-radius: 10px;
-        font-weight: bold;
-        width: 100%;
-        transition: 0.3s;
-    }}
-    .stButton>button:hover {{
-        background-color: #FFF;
-        color: #000;
-        box-shadow: 0px 0px 10px #FFD700;
+        background-color: #FFD700; color: #000; border-radius: 10px; font-weight: bold; width: 100%;
     }}
     .balance-banner {{
-        background: rgba(0, 0, 0, 0.65);
-        backdrop-filter: blur(10px);
-        padding: 25px;
-        border-radius: 15px;
-        border-left: 10px solid #FFD700;
-        margin-bottom: 25px;
-        text-align: center;
-        box-shadow: 0px 4px 15px rgba(0,0,0,0.5);
+        background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(10px); padding: 25px;
+        border-radius: 15px; border-left: 10px solid #FFD700; margin-bottom: 25px;
+        text-align: center; box-shadow: 0px 4px 15px rgba(0,0,0,0.5);
     }}
     .purple-box {{
-        background: rgba(0, 0, 0, 0.65);
-        backdrop-filter: blur(10px);
-        padding: 20px;
-        border-radius: 25px;
-        border: 2px solid rgba(255, 215, 0, 0.3);
-        text-align: center;
-        margin-bottom: 20px;
-    }}
-    .category-box {{
-        background: rgba(0, 0, 0, 0.65);
-        backdrop-filter: blur(10px);
-        padding: 15px;
-        border-radius: 15px;
-        text-align: center;
-        border-bottom: 4px solid #FFD700;
-        margin-bottom: 15px;
+        background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(10px); padding: 20px;
+        border-radius: 25px; border: 2px solid rgba(255, 215, 0, 0.3); text-align: center; margin-bottom: 20px;
     }}
     .alert-banner {{
-        background-color: #ff4d4d;
-        color: white;
-        padding: 10px;
-        border-radius: 10px;
-        text-align: center;
-        font-weight: bold;
-        margin-bottom: 20px;
+        background-color: #ff4d4d; color: white; padding: 10px; border-radius: 10px;
+        text-align: center; font-weight: bold; margin-bottom: 20px;
     }}
-    .login-card {{
-        background: rgba(0, 0, 0, 0.7);
-        backdrop-filter: blur(10px);
-        padding: 25px;
-        border-radius: 20px;
-        border: 1px solid rgba(255, 215, 0, 0.4);
-        box-shadow: 0px 8px 32px 0 rgba(0, 0, 0, 0.7);
-        max-width: 450px;
-        margin: auto;
-        margin-top: 30px;
-    }}
-    .login-title {{
-        text-align: center;
-        font-size: 22px;
-        font-weight: bold;
-        color: #FFD700 !important;
-        margin-bottom: 15px;
-    }}
-    h1, h2, h3, p, label {{
-        color: white !important;
-        font-weight: bold !important;
-    }}
-    .stDataFrame {{
-        background: white;
-        border-radius: 10px;
-        color: black;
-    }}
+    h1, h2, h3, p, label {{ color: white !important; font-weight: bold !important; }}
+    .stDataFrame {{ background: white; border-radius: 10px; color: black; }}
     </style>
 """, unsafe_allow_html=True)
 
 if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user = False, ""
-
-# --- DYNAMIC APP SETTINGS ---
-if 'custom_alert_text' not in st.session_state: 
-    st.session_state.custom_alert_text = "Shop kuri book"
-if 'low_limit' not in st.session_state: 
-    st.session_state.low_limit = 6000
+if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Shop kuri book"
+if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
 
 # --- HELPER FUNCTIONS ---
 def send_whatsapp_auto(msg):
@@ -215,20 +120,16 @@ def create_pdf(df):
 
 # --- 🔒 PIN LOGIN SCREEN ---
 if not st.session_state.auth:
-    st.markdown('<div class="login-card"><div class="login-title">🔐 PAICHI EXPENSES</div>', unsafe_allow_html=True)
-    
+    st.title("🔐 PAICHI EXPENSES LOGIN")
     u = st.selectbox("👤 Select User", ["faisal", "shabana", "admin"]).lower()
     pin = st.text_input("🔑 Enter 4-Digit PIN", type="password", max_chars=4)
     
-    st.markdown("<br>", unsafe_allow_html=True)
     if st.button("UNLOCK APP 🔓"):
         if USER_PINS.get(u) == pin:
             st.session_state.auth, st.session_state.user = True, u
             st.rerun()
         else:
             st.error("❌ Incorrect PIN! Try again.")
-            
-    st.markdown('</div>', unsafe_allow_html=True)
 else:
     df = load_data()
     t_in, t_out = (df['Credit'].sum(), df['Debit'].sum()) if not df.empty else (0.0, 0.0)
@@ -246,7 +147,7 @@ else:
 
     st.markdown(f'<div class="balance-banner"><span style="font-size:20px; color:#E0B0FF;">Available Balance</span><br><span style="font-size:40px; color:#FFD700; font-weight:bold;">₹{bal:,.2f}</span></div>', unsafe_allow_html=True)
     
-    menu = ["💰 Add Entry", "📅 Calendar", "📊 Report", "🔍 History", "🤝 Debt Tracker"]
+    menu = ["💰 Add Entry", "📅 Calendar", "📊 Report", "🔍 History", "🤝 Debt Tracker", "🤖 AI Advisor"]
     if st.session_state.user != "shabana": menu.insert(0, "🏠 Dashboard")
     page = st.sidebar.radio("Menu", menu)
     if st.sidebar.button("Logout"): st.session_state.auth = False; st.rerun()
@@ -255,25 +156,6 @@ else:
     if page == "🏠 Dashboard" and not df.empty:
         st.title("Financial Overview")
         st.markdown(f'<div class="purple-box"><h2 style="color:#00FF00;">Total Credit: ₹{t_in:,.2f}</h2><h2 style="color:#FF3131;">Total Debit: ₹{t_out:,.2f}</h2></div>', unsafe_allow_html=True)
-        
-        st.subheader("🗂️ Categorywise Expense Breakdown")
-        
-        def extract_cat(x):
-            item_text = str(x).lower()
-            if any(w in item_text for w in ["food", "ഭക്ഷണം", "ചായ", "ഹോട്ടൽ", "ബിരിയാണി", "mess"]): return "Food"
-            elif any(w in item_text for w in ["shop", "കട", "സാധനങ്ങൾ", "സൂപ്പർമാർക്കറ്റ്", "groceries"]): return "Shop"
-            elif any(w in item_text for w in ["fish", "മീൻ", "ഇറച്ചി", "ചിക്കൻ", "meat"]): return "Fish"
-            elif any(w in item_text for w in ["travel", "യാത്ര", "പെട്രോൾ", "വണ്ടി", "ടാക്സി", "petrol", "diesel"]): return "Travel"
-            elif any(w in item_text for w in ["rent", "വാടക", "റൂം"]): return "Rent"
-            
-            return x.split(']')[1].split(':')[0].strip().capitalize() if ']' in str(x) and ':' in str(x) else (str(x).split(':')[0].strip().capitalize() if ':' in str(x) else "Others")
-
-        df['Cat'] = df['Item'].apply(extract_cat)
-        cats = df[~df['Item'].str.contains('total', case=False, na=False)].groupby('Cat')['Debit'].sum().to_dict()
-        cols = st.columns(3)
-        for idx, (c_name, c_amt) in enumerate(cats.items()):
-            if c_amt > 0:
-                with cols[idx % 3]: st.markdown(f'<div class="category-box"><span style="font-size:16px; color:#aaa;">Total {c_name}</span><br><span style="font-size:24px; color:#FFF; font-weight:bold;">₹{c_amt:,.2f}</span></div>', unsafe_allow_html=True)
 
     # --- ADD ENTRY ---
     elif page == "💰 Add Entry":
@@ -321,14 +203,6 @@ else:
             if row['Debit'] > 0: events.append({"title": f" -₹{row['Debit']:,.0f}", "start": row['Date'], "backgroundColor": "#dc3545", "borderColor": "#dc3545", "textColor": "white"})
         
         cal_data = calendar(events=events, options={"headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth"}, "initialView": "dayGridMonth", "selectable": True}, key="pnl_calendar")
-        if cal_data.get("eventClick"):
-            dt_click = cal_data["eventClick"]["event"]["start"].split("T")[0]
-            st.markdown("---"); st.subheader(f"📋 Details for {pd.to_datetime(dt_click).strftime('%d %B %Y')}")
-            day_df = df_cal[df_cal['Date'].dt.strftime('%Y-%m-%d') == dt_click].copy()
-            if not day_df.empty:
-                day_df['Date'] = day_df['Date'].dt.strftime('%d/%m/%Y')
-                st.download_button("📥 Download This Day's Data", day_df[['Date', 'Item', 'Debit', 'Credit']].to_csv(index=False).encode('utf-8'), f"Transactions_{dt_click}.csv", "text/csv")
-                st.dataframe(day_df[['Date', 'Item', 'Debit', 'Credit']], use_container_width=True)
 
     # --- REPORT & HISTORY ---
     elif (page == "📊 Report" or page == "🔍 History") and not df.empty:
@@ -340,17 +214,6 @@ else:
         else:
             sel_m = st.selectbox("Select Month", months, key=f"{page}_select")
             m_df = df_rep[df_rep['Month'] == sel_m].copy()
-            
-            search_query = st.text_input("🔍 Search items (e.g. Fish, Petrol, Travel)...", "").strip().lower()
-            filter_type = st.selectbox("Filter Type", ["All", "Debit Only", "Credit Only"])
-            
-            if search_query:
-                m_df = m_df[m_df['Item'].str.lower().str.contains(search_query, na=False)]
-            if filter_type == "Debit Only":
-                m_df = m_df[m_df['Debit'] > 0]
-            elif filter_type == "Credit Only":
-                m_df = m_df[m_df['Credit'] > 0]
-
             m_deb, m_crd = m_df['Debit'].sum(), m_df['Credit'].sum()
             
             if page == "📊 Report":
@@ -361,79 +224,82 @@ else:
                 c3.markdown(f'<div class="purple-box"><h3 style="color:#FFD700;">Net Savings</h3><h1 style="color:#FFD700;">₹{m_crd - m_deb:,.2f}</h1></div>', unsafe_allow_html=True)
                 if m_deb > 0:
                     m_df['Cat'] = m_df['Item'].apply(lambda x: x.split(':')[0] if ':' in str(x) else 'Others')
-                    st.plotly_chart(px.pie(m_df[m_df['Debit'] > 0], values='Debit', names='Cat', hole=0.4, title=f"{sel_m} Expense Split").update_traces(textposition='inside', textinfo='percent+label'), use_container_width=True)
-
+                    st.plotly_chart(px.pie(m_df[m_df['Debit'] > 0], values='Debit', names='Cat', hole=0.4, title=f"{sel_m} Expense Split"), use_container_width=True)
+            
             clean_df = m_df.drop(columns=['Month'], errors='ignore')
-            pdf_df = clean_df.copy()
-            pdf_df['Date'] = pdf_df['Date'].dt.strftime('%d/%m/%Y')
-            csv_bytes = clean_df.to_csv(index=False).encode('utf-8')
-            
-            if page == "📊 Report":
-                st.download_button("📥 Download Excel/CSV Report", csv_bytes, f"Report_{sel_m.replace(' ', '_')}.csv", "text/csv")
-            else:
-                st.title("Transaction History")
-                col_p, col_c = st.columns(2)
-                pdf_b = create_pdf(pdf_df)
-                if pdf_b: col_p.download_button(f"📄 Download PDF", pdf_b, f"History_{sel_m.replace(' ', '_')}.pdf", "application/pdf")
-                col_c.download_button("📥 Download CSV (Excel)", csv_bytes, f"History_{sel_m.replace(' ', '_')}.csv", "text/csv")
-            
             clean_df['Date'] = clean_df['Date'].dt.strftime('%d/%m/%Y')
             st.dataframe(clean_df.iloc[::-1], use_container_width=True)
 
     # --- DEBT TRACKER ---
     elif page == "🤝 Debt Tracker":
         st.title("🤝 Debt Tracker & Summary")
-        st.info("ഇവിടെ നിങ്ങളുടെ കടം വാങ്ങിയതും നൽകിയതുമായ വിവരങ്ങൾ കാണാം.")
+        st.info("ഇവിടെ നിങ്ങളുടെ കടം വാങ്ങിയതും നൽകിയതുമായവിവരങ്ങൾ കാണാം.")
 
-    # ============================================
-    # 🤖 AI AGENT CHATBOT (FULL IMPLEMENTATION)
-    # ============================================
+    # --- AI ADVISOR ---
+    elif page == "🤖 AI Advisor":
+        st.title("🤖 PAICHI AI Financial Advisor")
+        st.markdown("നിങ്ങളുടെ ചെലവുകളെക്കുറിച്ച് AI-നോട് ചോദിക്കാം. (ഉദാ: 'ഈ മാസം ഞാൻ എവിടെയാണ് കൂടുതൽ ചെലവാക്കിയത്?')")
+        
+        GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+        
+        if "ai_messages" not in st.session_state:
+            st.session_state.ai_messages = []
 
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🤖 Ask AI Agent")
+        for msg in st.session_state.ai_messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
 
-    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+        if prompt := st.chat_input("Ask about your expenses..."):
+            st.session_state.ai_messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
 
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    for message in st.session_state.messages:
-        with st.sidebar.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    if prompt := st.sidebar.chat_input("Ask about your expenses..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.sidebar.chat_message("user"):
-            st.markdown(prompt)
-
-        with st.sidebar.chat_message("assistant"):
-            if df.empty:
-                st.warning("ഡാറ്റ ലഭ്യമല്ല.")
-            else:
-                try:
-                    summary_context = f"""
-                    You are an intelligent financial assistant for Paichi Expenses app.
-                    User data summary:
-                    - Total Credit (Income): ₹{t_in:,.2f}
-                    - Total Debit (Expense): ₹{t_out:,.2f}
-                    - Current Available Balance: ₹{bal:,.2f}
-                    
-                    Recent 10 Transactions:
-                    {df[['Date', 'Item', 'Debit', 'Credit']].tail(10).to_string(index=False)}
-                    
-                    Answer the user's question concisely in Malayalam or English based on the language used.
-                    User Question: {prompt}
-                    """
-                    
-                    if GEMINI_API_KEY:
+            if not df.empty:
+                with st.spinner("AI ആലോചിക്കുന്നു..."):
+                    try:
                         genai.configure(api_key=GEMINI_API_KEY)
-                        model = genai.GenerativeModel('gemini-3.8-flash')
-                        response = model.generate_content(summary_context)
-                        reply_text = response.text
-                    else:
-                        reply_text = f"📊 *Quick Status*:\n- Balance: ₹{bal:,.2f}\n- Total Spent: ₹{t_out:,.2f}\n(API Key നൽകാത്തതിനാൽ വിശദമായ വിവരങ്ങൾക്ക് Secrets സജ്ജീകരിക്കുക)."
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        
+                        df_summary = df[['Date', 'Item', 'Debit', 'Credit']].tail(50).to_string()
+                        
+                        system_prompt = f"""
+                        നീ ഒരു സ്മാർട്ട് ഫിനാൻസ് അസിസ്റ്റന്റ് ആണ്. 
+                        Data:
+                        {df_summary}
+                        
+                        Total Income: {t_in}
+                        Total Expense: {t_out}
+                        Current Balance: {bal}
+                        
+                        യൂസറുടെ ചോദ്യം: "{prompt}"
+                        
+                        മുകളിലുള്ള ഡാറ്റ മാത്രം ഉപയോഗിച്ച്, മലയാളത്തിൽ വ്യക്തമായി മറുപടി നൽകുക. 
+                        """
+                        
+                        response = model.generate_content(system_prompt)
+                        ai_reply = response.text
+                        
+                        st.session_state.ai_messages.append({"role": "assistant", "content": ai_reply})
+                        with st.chat_message("assistant"):
+                            st.markdown(ai_reply)
+                            
+                    except Exception as e:
+                        st.error(f"AI Error: {e}")
+            else:
+                st.warning("ഡാറ്റ ലഭ്യമല്ല.")
 
-                    st.markdown(reply_text)
-                    st.session_state.messages.append({"role": "assistant", "content": reply_text})
+    # --- SIDEBAR AI CHATBOT (Optional - എപ്പോഴും കാണാൻ) ---
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("💬 Quick AI Chat")
+    sidebar_prompt = st.sidebar.text_input("Ask AI:", key="sidebar_ai")
+    if st.sidebar.button("Send 🚀", key="sidebar_send"):
+        if sidebar_prompt and not df.empty:
+            with st.sidebar.spinner("AI ചിന്തിക്കുന്നു..."):
+                try:
+                    genai.configure(api_key=st.secrets.get("GEMINI_API_KEY", ""))
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    df_summary = df[['Item', 'Debit', 'Credit']].tail(20).to_string()
+                    res = model.generate_content(f"Data: {df_summary}\nBalance: {bal}\nQuestion: {sidebar_prompt}\nAnswer in Malayalam.")
+                    st.sidebar.success(res.text)
                 except Exception as e:
-                    st.error(f"Error handling AI query: {str(e)}")
+                    st.sidebar.error("Error: " + str(e))
