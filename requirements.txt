@@ -8,3 +8,13 @@ streamlit-calendar>=1.1.1
 fpdf2>=2.7.9
 twilio>=8.10.0
 google-generativeai>=0.3.0
+streamlit
+pandas
+requests
+groq
+plotly
+streamlit-mic-recorder
+streamlit-autorefresh
+fpdf
+streamlit-calendar
+twilio
