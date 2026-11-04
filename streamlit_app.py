@@ -416,12 +416,13 @@ model="openai/gpt-oss-120b", # 👈 മോഡൽ മാറ്റി
                     utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                     
                     system_instruction = f"""
-                    നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. 
-                    ഇന്നത്തെ തീയതി: {today_date}. സമയം: {utc_now}. 
-                    ബാലൻസ്: {bal} Rs. 
-                    ചെലവ് ചേർക്കാൻ add_new_entry അല്ലെങ്കിൽ add_multiple_entries ടൂൾ ഉപയോഗിക്കുക.
-                    യൂസർ 'ഇന്നലെ', 'നാളെ' എന്ന് പറഞ്ഞാൽ അത് കണക്കുകൂട്ടി കൃത്യമായ YYYY-MM-DD ഫോർമാറ്റിൽ 'date' പാരാമീറ്ററിൽ നൽകുക.
-                    """
+നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. 
+സമയം: {utc_now}. ബാലൻസ്: {bal} Rs. 
+ചെലവ് ചേർക്കാൻ add_new_entry അല്ലെങ്കിൽ add_multiple_entries ടൂൾ ഉപയോഗിക്കുക.
+യൂസർ 'ഇന്നലെ', 'നാളെ' എന്ന് പറഞ്ഞാൽ അത് കണക്കുകൂട്ടി കൃത്യമായ YYYY-MM-DD ഫോർമാറ്റിൽ 'date' പാരാമീറ്ററിൽ നൽകുക.
+
+പ്രധാനം: യൂസറുടെ മെസ്സേജിൽ എണ്ണവും (quantity) വിലയും വ്യക്തമല്ലെങ്കിൽ (ഉദാ: "10 കടുക് നൂറ്"), ഉടൻ ടൂൾ വിളിക്കരുത്. ആദ്യം ചാറ്റിൽ വ്യക്തത തരാൻ ചോദിക്കുക. (Do not call tools if the input is ambiguous. Ask for clarification first).
+"""
                     
                     messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-2:]]
 
