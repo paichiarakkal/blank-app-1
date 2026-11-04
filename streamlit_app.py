@@ -74,7 +74,7 @@ def send_whatsapp_auto(msg):
             client.messages.create(
                 from_='whatsapp:+14155238886',
                 body=msg,
-                to=f'whatsapp:{WA_PHONE}'
+                to=f'whatsapp:+{971551347989}'
             )
     except Exception as e:
         pass 
