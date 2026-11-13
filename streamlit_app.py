@@ -15,9 +15,12 @@ from groq import Groq
 from streamlit_calendar import calendar
 from twilio.rest import Client
 
-# --- CONFIG & SETTINGS ---
-CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRccfZch3jSdHqrScpqsR_j3FSd70NbELC1j6_nPi-MQXdrhVr3BPcKoI1nub4mQql727pQRPWYk9C-/pub?gid=1583146028&single=true&output=csv"
-FORM_API = "https://docs.google.com/forms/d/e/1FAIpQLSfLySolQSiRXV0wELNPhUBlKJh77RnJKWc2-uqAM0TPNG3Q5A/formResponse"
+# --- STREAMLIT UI SETUP (ഇത് ആദ്യം വേണം) ---
+st.set_page_config(page_title="PAICHI EXPENSES v6.0", layout="wide")
+
+# --- CONFIG & SETTINGS (SECRETS ൽ നിന്ന് എടുക്കുന്നു) ---
+CSV_URL = st.secrets.get("GOOGLE_SHEET_CSV", "")
+WEB_APP_URL = st.secrets.get("APPS_SCRIPT_URL", "")
 
 WA_PHONE = "971551347989"
 USER_PINS = {
@@ -27,8 +30,6 @@ USER_PINS = {
 }
 BG_IMAGE_URL = "https://raw.githubusercontent.com/paichiarakkal/paichiarakkal/main/profile.jpg"
 
-# --- STREAMLIT UI SETUP ---
-st.set_page_config(page_title="PAICHI EXPENSES v6.0", layout="wide")
 st_autorefresh(interval=60000, key="auto_refresh")
 
 st.markdown(f"""
@@ -91,6 +92,8 @@ def parse_mixed_dates(date_series):
 @st.cache_data(ttl=10)
 def load_data():
     try:
+        if not CSV_URL:
+            return pd.DataFrame()
         df = pd.read_csv(f"{CSV_URL}&r={random.randint(1,999)}")
         df.columns = df.columns.str.strip()
         df['Date'] = parse_mixed_dates(df['Date'])
@@ -133,13 +136,16 @@ GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None):
     try:
         if not entry_date: entry_date = datetime.now().strftime("%Y-%m-%d")
+        
         payload = {
-            "entry.1044099436": entry_date, 
-            "entry.2013476337": f"[{st.session_state.user.capitalize()}] {category}: {item}", 
-            "entry.1460982454": amount if type.lower() == "debit" else 0, 
-            "entry.1221658767": 0 if type.lower() == "debit" else amount
+            "item": item,
+            "amount": amount,
+            "category": category,
+            "type": type,
+            "date": entry_date,
+            "sender": st.session_state.user.capitalize()
         }
-        requests.post(FORM_API, data=payload, timeout=10)
+        requests.post(WEB_APP_URL, json=payload, timeout=10)
         send_whatsapp_auto(f"✅ *AI Entry Added*\n📝 Item: {item}\n💰 Amt: ₹{amount}")
         return f"Success: {item} - ₹{amount} ({type}) on {entry_date}"
     except Exception as e:
@@ -156,12 +162,14 @@ def add_multiple_entries(entries_list):
             entry_date = entry.get('date', datetime.now().strftime('%Y-%m-%d'))
 
             payload = {
-                'entry.1044099436': entry_date,
-                'entry.2013476337': f'[{st.session_state.user.capitalize()}] {category}: {item}',
-                'entry.1460982454': amount if entry_type.lower() == 'debit' else 0,
-                'entry.1221658767': 0 if entry_type.lower() == 'debit' else amount,
+                "item": item,
+                "amount": amount,
+                "category": category,
+                "type": entry_type,
+                "date": entry_date,
+                "sender": st.session_state.user.capitalize()
             }
-            requests.post(FORM_API, data=payload, timeout=10)
+            requests.post(WEB_APP_URL, json=payload, timeout=10)
             results.append(f'{item} - ₹{amount}')
 
         summary_text = '\n'.join([f'• {r}' for r in results])
@@ -293,14 +301,23 @@ else:
             am_str = st.text_input("Amount", value=str(v_amt))
             cat = st.selectbox("Category", ["Food", "Shop", "Fish", "Travel", "Rent", "Others"], index=["Food", "Shop", "Fish", "Travel", "Rent", "Others"].index(v_cat))
             ty = st.radio("Type", ["Debit", "Credit"], horizontal=True, index=0 if v_type == "Debit" else 1)
+            
             if st.form_submit_button("SAVE & NOTIFY"):
                 try:
                     am = float(am_str.strip().replace(',', ''))
-                    payload = {"entry.1044099436": datetime.now().strftime("%Y-%m-%d"), "entry.2013476337": f"[{st.session_state.user.capitalize()}] {cat}: {it}", "entry.1460982454": am if ty=="Debit" else 0, "entry.1221658767": 0 if ty=="Debit" else am}
-                    requests.post(FORM_API, data=payload, timeout=10)
+                    payload = {
+                        "item": it,
+                        "amount": am,
+                        "category": cat,
+                        "type": ty,
+                        "date": datetime.now().strftime("%Y-%m-%d"),
+                        "sender": st.session_state.user.capitalize()
+                    }
+                    requests.post(WEB_APP_URL, json=payload, timeout=10)
                     send_whatsapp_auto(f"✅ *Paichi Entry*\n📝 {it}\n💰 ₹{am}")
                     st.success("Saved! ✅"); st.rerun()
-                except: st.error("Error! Valid amount required.")
+                except Exception as e: 
+                    st.error(f"Error! Valid amount required. {e}")
 
     # --- CALENDAR ---
     elif page == "📅 Calendar" and not df.empty:
@@ -379,7 +396,7 @@ else:
                     messages = [{"role": "system", "content": system_prompt}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.buddy_messages[-4:]]
                     
                     response = client.chat.completions.create(
-model="openai/gpt-oss-120b", # 👈 മോഡൽ മാറ്റി
+                        model="openai/gpt-oss-120b", 
                         messages=messages,
                         max_tokens=1024
                     )
@@ -430,7 +447,7 @@ model="openai/gpt-oss-120b", # 👈 മോഡൽ മാറ്റി
                     messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-2:]]
 
                     response = client.chat.completions.create(
-model="openai/gpt-oss-120b", # 👈 ടൂൾ ഉപയോഗത്തിന് ഏറ്റവും മികച്ചത്
+                        model="openai/gpt-oss-120b", 
                         messages=messages_for_api,
                         tools=tools,
                         tool_choice="auto",
