@@ -16,10 +16,8 @@ from streamlit_calendar import calendar
 from twilio.rest import Client
 
 # --- CONFIG & SETTINGS ---
-
-# 🔐 st.secrets-ൽ നിന്ന് സുരക്ഷിതമായി ലിങ്കുകൾ എടുക്കുന്നു
-CSV_URL = st.secrets.get("CSV_URL", "")
-WEB_APP_URL = st.secrets.get("WEB_APP_URL", "")
+CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRccfZch3jSdHqrScpqsR_j3FSd70NbELC1j6_nPi-MQXdrhVr3BPcKoI1nub4mQql727pQRPWYk9C-/pub?gid=1583146028&single=true&output=csv"
+FORM_API = "https://docs.google.com/forms/d/e/1FAIpQLSfLySolQSiRXV0wELNPhUBlKJh77RnJKWc2-uqAM0TPNG3Q5A/formResponse"
 
 WA_PHONE = "971551347989"
 USER_PINS = {
