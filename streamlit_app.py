@@ -13,10 +13,10 @@ from groq import Groq
 from streamlit_calendar import calendar
 from twilio.rest import Client
 
-# --- STREAMLIT UI SETUP (ഇത് ആദ്യം വേണം) ---
+# --- STREAMLIT UI SETUP ---
 st.set_page_config(page_title="PAICHI EXPENSES", layout="wide")
 
-# --- CONFIG & SETTINGS (SECRETS ൽ നിന്ന് എടുക്കുന്നു) ---
+# --- CONFIG & SETTINGS ---
 CSV_URL = st.secrets.get("GOOGLE_SHEET_CSV", "")
 WEB_APP_URL = st.secrets.get("APPS_SCRIPT_URL", "")
 WA_PHONE = "971551347989"
@@ -32,145 +32,36 @@ GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 st_autorefresh(interval=60000, key="auto_refresh")
 
 # ============================================
-# 🎨 3D GLASSMORPHISM CSS (പ്രീമിയം ഡിസൈൻ)
+# 🎨 3D GLASSMORPHISM CSS
 # ============================================
 st.markdown(f"""
     <style>
-    /* Background with parallax effect */
     [data-testid="stAppViewContainer"] {{ 
         background-image: linear-gradient(rgba(10, 10, 25, 0.85), rgba(10, 10, 25, 0.95)), url("{BG_IMAGE_URL}"); 
-        background-size: cover; 
-        background-attachment: fixed; 
-        background-position: center;
+        background-size: cover; background-attachment: fixed; background-position: center;
     }}
-    
-    /* Sidebar 3D Effect */
     [data-testid="stSidebar"] {{ 
-        background: rgba(20, 20, 35, 0.6) !important; 
-        backdrop-filter: blur(15px);
-        -webkit-backdrop-filter: blur(15px);
-        border-right: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 5px 0 15px rgba(0,0,0,0.5);
+        background: rgba(20, 20, 35, 0.6) !important; backdrop-filter: blur(15px);
+        border-right: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 5px 0 15px rgba(0,0,0,0.5);
     }}
-
-    /* 3D Buttons */
     .stButton>button {{ 
-        background: linear-gradient(135deg, #FFD700, #FFA500); 
-        color: #000; 
-        border-radius: 12px; 
-        font-weight: bold; 
-        width: 100%;
-        border: none;
-        padding: 10px;
+        background: linear-gradient(135deg, #FFD700, #FFA500); color: #000; border-radius: 12px; 
+        font-weight: bold; width: 100%; border: none; padding: 10px;
         box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4), inset 0 -3px 0 rgba(0,0,0,0.2);
         transition: all 0.2s ease;
     }}
-    .stButton>button:hover {{
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(255, 215, 0, 0.6), inset 0 -3px 0 rgba(0,0,0,0.2);
-    }}
-    .stButton>button:active {{
-        transform: translateY(1px);
-        box-shadow: 0 2px 10px rgba(255, 215, 0, 0.4);
-    }}
-
-    /* Glassmorphism Cards */
-    .glass-card {{
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 20px;
-        padding: 25px;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-        margin-bottom: 25px;
-        text-align: center;
-    }}
-
-    /* Balance Banner 3D */
-    .balance-banner {{ 
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02));
-        backdrop-filter: blur(10px);
-        padding: 30px; 
-        border-radius: 20px; 
-        border-left: 8px solid #FFD700; 
-        text-align: center; 
-        margin-bottom: 25px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.2);
-    }}
-
-    /* Category Boxes */
-    .category-box {{ 
-        background: rgba(0, 0, 0, 0.5); 
-        padding: 20px; 
-        border-radius: 15px; 
-        text-align: center; 
-        border-bottom: 4px solid #FFD700; 
-        margin-bottom: 15px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        transition: transform 0.3s;
-    }}
+    .stButton>button:hover {{ transform: translateY(-2px); box-shadow: 0 6px 20px rgba(255, 215, 0, 0.6); }}
+    .glass-card {{ background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 25px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); margin-bottom: 25px; text-align: center; }}
+    .balance-banner {{ background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02)); backdrop-filter: blur(10px); padding: 30px; border-radius: 20px; border-left: 8px solid #FFD700; text-align: center; margin-bottom: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }}
+    .category-box {{ background: rgba(0, 0, 0, 0.5); padding: 20px; border-radius: 15px; text-align: center; border-bottom: 4px solid #FFD700; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }}
     .category-box:hover {{ transform: scale(1.03); }}
-
-    /* Alerts */
-    .alert-banner {{ 
-        background: linear-gradient(90deg, #ff4d4d, #cc0000); 
-        color: white; 
-        padding: 15px; 
-        border-radius: 10px; 
-        text-align: center; 
-        font-weight: bold; 
-        margin-bottom: 20px;
-        box-shadow: 0 4px 15px rgba(255, 77, 77, 0.4);
-        animation: pulse 2s infinite;
-    }}
-    @keyframes pulse {{
-        0% {{ box-shadow: 0 0 0 0 rgba(255, 77, 77, 0.7); }}
-        70% {{ box-shadow: 0 0 0 15px rgba(255, 77, 77, 0); }}
-        100% {{ box-shadow: 0 0 0 0 rgba(255, 77, 77, 0); }}
-    }}
-
-    /* Login Card */
-    .login-card {{ 
-        background: rgba(20, 20, 35, 0.8); 
-        backdrop-filter: blur(20px);
-        padding: 40px; 
-        border-radius: 20px; 
-        max-width: 450px; 
-        margin: auto; 
-        margin-top: 80px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 15px 35px rgba(0,0,0,0.6);
-    }}
-
-    /* Text Colors */
+    .alert-banner {{ background: linear-gradient(90deg, #ff4d4d, #cc0000); color: white; padding: 15px; border-radius: 10px; text-align: center; font-weight: bold; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(255, 77, 77, 0.4); }}
+    .login-card {{ background: rgba(20, 20, 35, 0.8); backdrop-filter: blur(20px); padding: 40px; border-radius: 20px; max-width: 450px; margin: auto; margin-top: 80px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.6); }}
     h1, h2, h3, p, label {{ color: #FFFFFF !important; font-weight: bold !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }}
-    
-    /* WhatsApp Style Chat Bubbles */
-    [data-testid="stChatMessage"] {{ 
-        background: rgba(32, 44, 51, 0.9) !important; 
-        border-radius: 15px !important; 
-        padding: 15px !important; 
-        margin-bottom: 10px !important; 
-        border: 1px solid rgba(255,255,255,0.05) !important;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-    }}
-    [data-testid="stChatInput"] {{ 
-        background-color: rgba(42, 57, 66, 0.8) !important; 
-        border-radius: 25px !important; 
-        border: 1px solid rgba(255,255,255,0.1) !important; 
-        padding: 5px !important; 
-    }}
+    [data-testid="stChatMessage"] {{ background: rgba(32, 44, 51, 0.9) !important; border-radius: 15px !important; padding: 15px !important; margin-bottom: 10px !important; border: 1px solid rgba(255,255,255,0.05) !important; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }}
+    [data-testid="stChatInput"] {{ background-color: rgba(42, 57, 66, 0.8) !important; border-radius: 25px !important; border: 1px solid rgba(255,255,255,0.1) !important; padding: 5px !important; }}
     [data-testid="stChatInput"] textarea {{ color: white !important; }}
-
-    /* Input Text Color Fix */
-    input, textarea, select {{ 
-        color: #FFFFFF !important; 
-        -webkit-text-fill-color: #FFFFFF !important; 
-        background-color: rgba(0, 0, 0, 0.5) !important;
-        border: 1px solid rgba(255, 255, 255, 0.2) !important;
-        border-radius: 8px !important;
-    }}
+    input, textarea, select {{ color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important; background-color: rgba(0, 0, 0, 0.5) !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; border-radius: 8px !important; }}
     ::placeholder {{ color: #AAAAAA !important; }}
     </style>
 """, unsafe_allow_html=True)
@@ -179,6 +70,7 @@ if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user 
 if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Shop kuri book"
 if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
 if "last_processed_msg" not in st.session_state: st.session_state.last_processed_msg = None
+if "pending_entry" not in st.session_state: st.session_state.pending_entry = None # കൺഫേം ചെയ്യാനുള്ള ഡാറ്റ
 
 # --- HELPER FUNCTIONS ---
 def send_whatsapp_auto(msg):
@@ -187,13 +79,8 @@ def send_whatsapp_auto(msg):
         auth_token = st.secrets.get("TWILIO_AUTH_TOKEN", "")
         if account_sid and auth_token:
             client = Client(account_sid, auth_token)
-            client.messages.create(
-                from_='whatsapp:+14155238886',
-                body=msg,
-                to=f'whatsapp:+{WA_PHONE}'
-            )
-    except Exception as e:
-        pass 
+            client.messages.create(from_='whatsapp:+14155238886', body=msg, to=f'whatsapp:+{WA_PHONE}')
+    except: pass 
 
 def parse_mixed_dates(date_series):
     parsed = []
@@ -295,7 +182,6 @@ else:
     t_in, t_out = (df['Credit'].sum(), df['Debit'].sum()) if not df.empty else (0.0, 0.0)
     bal = t_in - t_out
     
-    # SIDEBAR SETTINGS
     if st.session_state.user != "shabana":
         with st.sidebar.expander("⚙️ Settings"):
             st.session_state.custom_alert_text = st.text_area("Alert Message", value=st.session_state.custom_alert_text)
@@ -304,13 +190,7 @@ else:
     if bal < st.session_state.low_limit:
         st.markdown(f'<div class="alert-banner">⚠️ ബാലൻസ് കുറവാണ്: {st.session_state.custom_alert_text} (₹{bal:,.2f})!</div>', unsafe_allow_html=True)
 
-    # 3D Balance Banner
-    st.markdown(f'''
-        <div class="balance-banner">
-            <span style="font-size:22px; color:#E0B0FF; letter-spacing: 2px;">AVAILABLE BALANCE</span><br>
-            <span style="font-size:50px; color:#FFD700; font-family: monospace;">₹{bal:,.2f}</span>
-        </div>
-    ''', unsafe_allow_html=True)
+    st.markdown(f'<div class="balance-banner"><span style="font-size:22px; color:#E0B0FF; letter-spacing: 2px;">AVAILABLE BALANCE</span><br><span style="font-size:50px; color:#FFD700; font-family: monospace;">₹{bal:,.2f}</span></div>', unsafe_allow_html=True)
     
     menu = ["💰 Add Entry", "📅 Calendar", "📊 Report", "🔍 History", "🤝 Debt Tracker", "🤖 AI Chat", "🧠 My AI Buddy"]
     if st.session_state.user != "shabana": menu.insert(0, "🏠 Dashboard")
@@ -320,13 +200,7 @@ else:
     # --- DASHBOARD ---
     if page == "🏠 Dashboard" and not df.empty:
         st.title("Financial Overview")
-        
-        st.markdown(f'''
-            <div class="glass-card">
-                <h2 style="color:#00FF00; text-shadow: 0 0 10px rgba(0,255,0,0.5);">Credit: ₹{t_in:,.2f}</h2>
-                <h2 style="color:#FF3131; text-shadow: 0 0 10px rgba(255,49,49,0.5);">Debit: ₹{t_out:,.2f}</h2>
-            </div>
-        ''', unsafe_allow_html=True)
+        st.markdown(f'<div class="glass-card"><h2 style="color:#00FF00;">Credit: ₹{t_in:,.2f}</h2><h2 style="color:#FF3131;">Debit: ₹{t_out:,.2f}</h2></div>', unsafe_allow_html=True)
         
         def extract_cat(x):
             item_text = str(x).lower()
@@ -342,12 +216,7 @@ else:
         for idx, (c_name, c_amt) in enumerate(cats.items()):
             if c_amt > 0:
                 with cols[idx % 3]: 
-                    st.markdown(f'''
-                        <div class="category-box">
-                            <span style="color:#aaa;">Total {c_name}</span><br>
-                            <span style="font-size:24px; color:#FFF;">₹{c_amt:,.2f}</span>
-                        </div>
-                    ''', unsafe_allow_html=True)
+                    st.markdown(f'<div class="category-box"><span style="color:#aaa;">Total {c_name}</span><br><span style="font-size:24px; color:#FFF;">₹{c_amt:,.2f}</span></div>', unsafe_allow_html=True)
 
     # --- ADD ENTRY ---
     elif page == "💰 Add Entry":
@@ -456,38 +325,55 @@ else:
                     with st.chat_message("assistant"): st.markdown(ai_reply)
                 except Exception as e: st.error(f"Error: {e}")
 
-    # --- AI CHAT (AI Agent) ---
+    # --- AI CHAT (AI Agent with Confirmation) ---
     elif page == "🤖 AI Chat":
         st.title("🤖 AI Agent & Assistant")
         
         if "messages" not in st.session_state: st.session_state.messages = []
+
+        # കൺഫേം ചെയ്യാനുള്ള UI
+        if st.session_state.pending_entry:
+            st.warning(f"⏳ നിങ്ങൾ പറഞ്ഞത്: **{st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}**. ഇത് എൻട്രി ചെയ്യണോ?")
+            col1, col2 = st.columns(2)
+            if col1.button("✅ Yes, Save it"):
+                result = add_new_entry(
+                    item=st.session_state.pending_entry['item'], 
+                    amount=st.session_state.pending_entry['amount'], 
+                    category=st.session_state.pending_entry['category'], 
+                    type=st.session_state.pending_entry['type'],
+                    entry_date=st.session_state.pending_entry['date']
+                )
+                if "Success" in result:
+                    ai_msg = f"✅ ചേട്ടാ, {st.session_state.pending_entry['item']}-ന് ₹{st.session_state.pending_entry['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!"
+                else:
+                    ai_msg = f"❌ എൻട്രി ഇടാൻ പറ്റിയില്ല: {result}"
+                
+                st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                st.session_state.pending_entry = None
+                st.rerun()
+                
+            if col2.button("❌ No, Cancel"):
+                ai_msg = "ശരി ചേട്ടാ, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല. വേറെ എന്തെങ്കിലും വേണോ?"
+                st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                st.session_state.pending_entry = None
+                st.rerun()
 
         for message in st.session_state.messages:
             with st.chat_message(message["role"]): st.markdown(message["content"])
 
         v_raw = speech_to_text(language='ml', key='ai_voice_input')
         prompt = st.chat_input("Ask anything or add expense...", key="ai_chat_box")
-
         final_prompt = v_raw if v_raw else prompt
 
         if final_prompt and final_prompt != st.session_state.last_processed_msg:
             st.session_state.last_processed_msg = final_prompt
-            
             st.session_state.messages.append({"role": "user", "content": final_prompt})
             with st.chat_message("user"): st.markdown(final_prompt)
 
             with st.spinner("AI ആലോചിക്കുന്നു..."):
                 try:
                     client = Groq(api_key=GROQ_API_KEY)
-                    today_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                    utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-                    
-                    system_instruction = f"""
-                    നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. 
-                    സമയം: {utc_now}. ബാലൻസ്: {bal} Rs. 
-                    ചെലവ് ചേർക്കാൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക.
-                    യൂസർ 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ Debit ആയി എൻട്രി ചേർക്കുക.
-                    """
+                    system_instruction = f"നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. ബാലൻസ്: {bal} Rs. 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക."
                     
                     messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-2:]]
 
@@ -500,40 +386,28 @@ else:
                     )
 
                     response_message = response.choices[0].message
-                    entry_saved = False
-                    ai_reply = ""
-
+                    
                     if response_message.tool_calls:
                         for tool_call in response_message.tool_calls:
                             if tool_call.function.name == 'add_new_entry':
                                 args = json.loads(tool_call.function.arguments)
-                                result = add_new_entry(
-                                    item=args.get("item"), amount=args.get("amount"), 
-                                    category=args.get("category", "Others"), type=args.get("type", "Debit"),
-                                    entry_date=args.get("date")
-                                )
-                                if "Success" in result:
-                                    ai_reply = f"✅ {args.get('item')}-ന് {args.get('amount')} Rs ഞാൻ എൻട്രി ഇട്ടു!"
-                                    entry_saved = True
-                                else: ai_reply = f"❌ {result}"
-                            
-                            elif tool_call.function.name == 'add_multiple_entries':
-                                args = json.loads(tool_call.function.arguments)
-                                result = add_multiple_entries(entries_list=args.get('entries_list', []))
-                                if 'Success' in result:
-                                    ai_reply = '✅ പറഞ്ഞ എല്ലാ എൻട്രികളും വിജയകരമായി ഷീറ്റിൽ ചേർത്തു!'
-                                    entry_saved = True
-                                else: ai_reply = f'❌ {result}'
-                    
+                                # പകരം pending_entry എന്നതിൽ സേവ് ചെയ്യുന്നു.
+                                st.session_state.pending_entry = {
+                                    "item": args.get("item"),
+                                    "amount": args.get("amount"),
+                                    "category": args.get("category", "Others"),
+                                    "type": args.get("type", "Debit"),
+                                    "date": args.get("date") or datetime.now().strftime("%Y-%m-%d")
+                                }
+                                ai_reply = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ?"
+                                st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                                with st.chat_message("assistant"): st.markdown(ai_reply)
+                                st.rerun()
+                                
                     elif response_message.content:
                         ai_reply = response_message.content
-                    else:
-                        ai_reply = "ക്ഷമിക്കണം, എനിക്ക് മനസ്സിലായില്ല."
-
-                    st.session_state.messages.append({"role": "assistant", "content": ai_reply})
-                    with st.chat_message("assistant"): st.markdown(ai_reply)
-                    
-                    if entry_saved: st.rerun()
+                        st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                        with st.chat_message("assistant"): st.markdown(ai_reply)
 
                 except Exception as e:
                     st.error(f"AI Error: {str(e)}")
