@@ -319,13 +319,13 @@ else:
                     client = Groq(api_key=GROQ_API_KEY)
                     system_prompt = "You are a helpful personal AI assistant for a 51-year-old Malayali. Answer their questions in Malayalam in a friendly way."
                     messages = [{"role": "system", "content": system_prompt}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.buddy_messages[-4:]]
-                    response = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=messages, max_tokens=1024)
+                    response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=messages, max_tokens=1024)
                     ai_reply = response.choices[0].message.content
                     st.session_state.buddy_messages.append({"role": "assistant", "content": ai_reply})
                     with st.chat_message("assistant"): st.markdown(ai_reply)
                 except Exception as e: st.error(f"Error: {e}")
 
-        # --- AI CHAT (AI Agent with Confirmation) ---
+    # --- AI CHAT (AI Agent with Confirmation & Loop Fixed) ---
     elif page == "🤖 AI Chat":
         st.title("🤖 AI Agent & Assistant")
         
@@ -380,13 +380,13 @@ else:
                         
                         messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
 
-                                           response = client.chat.completions.create(
-                            model="openai/gpt-oss-120b", # ഈ മോഡൽ നെയിം നൽകുക
+                        response = client.chat.completions.create(
+                            model="openai/gpt-oss-120b", 
                             messages=messages_for_api,
                             tools=tools,
                             tool_choice="auto",
                             max_tokens=1024
-)                                              
+                        )
 
                         response_message = response.choices[0].message
                         
