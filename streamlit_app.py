@@ -32,7 +32,7 @@ GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 st_autorefresh(interval=60000, key="auto_refresh")
 
 # ============================================
-# 🎨 3D GLASSMORPHISM CSS (പുതിയ ഡിസൈൻ)
+# 🎨 3D GLASSMORPHISM CSS (പ്രീമിയം ഡിസൈൻ)
 # ============================================
 st.markdown(f"""
     <style>
@@ -178,6 +178,7 @@ st.markdown(f"""
 if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user = False, ""
 if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Shop kuri book"
 if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
+if "last_processed_msg" not in st.session_state: st.session_state.last_processed_msg = None
 
 # --- HELPER FUNCTIONS ---
 def send_whatsapp_auto(msg):
@@ -303,6 +304,7 @@ else:
     if bal < st.session_state.low_limit:
         st.markdown(f'<div class="alert-banner">⚠️ ബാലൻസ് കുറവാണ്: {st.session_state.custom_alert_text} (₹{bal:,.2f})!</div>', unsafe_allow_html=True)
 
+    # 3D Balance Banner
     st.markdown(f'''
         <div class="balance-banner">
             <span style="font-size:22px; color:#E0B0FF; letter-spacing: 2px;">AVAILABLE BALANCE</span><br>
@@ -318,6 +320,7 @@ else:
     # --- DASHBOARD ---
     if page == "🏠 Dashboard" and not df.empty:
         st.title("Financial Overview")
+        
         st.markdown(f'''
             <div class="glass-card">
                 <h2 style="color:#00FF00; text-shadow: 0 0 10px rgba(0,255,0,0.5);">Credit: ₹{t_in:,.2f}</h2>
@@ -453,26 +456,49 @@ else:
                     with st.chat_message("assistant"): st.markdown(ai_reply)
                 except Exception as e: st.error(f"Error: {e}")
 
-    # --- AI CHAT ---
+    # --- AI CHAT (AI Agent) ---
     elif page == "🤖 AI Chat":
         st.title("🤖 AI Agent & Assistant")
+        
         if "messages" not in st.session_state: st.session_state.messages = []
+
         for message in st.session_state.messages:
             with st.chat_message(message["role"]): st.markdown(message["content"])
 
         v_raw = speech_to_text(language='ml', key='ai_voice_input')
         prompt = st.chat_input("Ask anything or add expense...", key="ai_chat_box")
+
         final_prompt = v_raw if v_raw else prompt
 
-        if final_prompt:
+        if final_prompt and final_prompt != st.session_state.last_processed_msg:
+            st.session_state.last_processed_msg = final_prompt
+            
             st.session_state.messages.append({"role": "user", "content": final_prompt})
             with st.chat_message("user"): st.markdown(final_prompt)
+
             with st.spinner("AI ആലോചിക്കുന്നു..."):
                 try:
                     client = Groq(api_key=GROQ_API_KEY)
-                    system_instruction = f"നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. ബാലൻസ്: {bal} Rs. 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ Debit ആയി add_new_entry ടൂൾ ഉപയോഗിച്ച് എൻട്രി ചേർക്കുക."
+                    today_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    system_instruction = f"""
+                    നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. 
+                    സമയം: {utc_now}. ബാലൻസ്: {bal} Rs. 
+                    ചെലവ് ചേർക്കാൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക.
+                    യൂസർ 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ Debit ആയി എൻട്രി ചേർക്കുക.
+                    """
+                    
                     messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-2:]]
-                    response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=messages_for_api, tools=tools, tool_choice="auto", max_tokens=1024)
+
+                    response = client.chat.completions.create(
+                        model="openai/gpt-oss-120b", 
+                        messages=messages_for_api,
+                        tools=tools,
+                        tool_choice="auto",
+                        max_tokens=1024
+                    )
+
                     response_message = response.choices[0].message
                     entry_saved = False
                     ai_reply = ""
@@ -481,11 +507,16 @@ else:
                         for tool_call in response_message.tool_calls:
                             if tool_call.function.name == 'add_new_entry':
                                 args = json.loads(tool_call.function.arguments)
-                                result = add_new_entry(item=args.get("item"), amount=args.get("amount"), category=args.get("category", "Others"), type=args.get("type", "Debit"), entry_date=args.get("date"))
+                                result = add_new_entry(
+                                    item=args.get("item"), amount=args.get("amount"), 
+                                    category=args.get("category", "Others"), type=args.get("type", "Debit"),
+                                    entry_date=args.get("date")
+                                )
                                 if "Success" in result:
                                     ai_reply = f"✅ {args.get('item')}-ന് {args.get('amount')} Rs ഞാൻ എൻട്രി ഇട്ടു!"
                                     entry_saved = True
                                 else: ai_reply = f"❌ {result}"
+                            
                             elif tool_call.function.name == 'add_multiple_entries':
                                 args = json.loads(tool_call.function.arguments)
                                 result = add_multiple_entries(entries_list=args.get('entries_list', []))
@@ -493,10 +524,16 @@ else:
                                     ai_reply = '✅ പറഞ്ഞ എല്ലാ എൻട്രികളും വിജയകരമായി ഷീറ്റിൽ ചേർത്തു!'
                                     entry_saved = True
                                 else: ai_reply = f'❌ {result}'
-                    elif response_message.content: ai_reply = response_message.content
-                    else: ai_reply = "ക്ഷമിക്കണം, എനിക്ക് മനസ്സിലായില്ല."
+                    
+                    elif response_message.content:
+                        ai_reply = response_message.content
+                    else:
+                        ai_reply = "ക്ഷമിക്കണം, എനിക്ക് മനസ്സിലായില്ല."
 
                     st.session_state.messages.append({"role": "assistant", "content": ai_reply})
                     with st.chat_message("assistant"): st.markdown(ai_reply)
+                    
                     if entry_saved: st.rerun()
-                except Exception as e: st.error(f"AI Error: {str(e)}")
+
+                except Exception as e:
+                    st.error(f"AI Error: {str(e)}")
