@@ -410,4 +410,4 @@ else:
                         with st.chat_message("assistant"): st.markdown(ai_reply)
 
                 except Exception as e:
-                    st.error(f"AI Error: {str(e)
+                    st.error(f"AI Error: {str(e)"}
