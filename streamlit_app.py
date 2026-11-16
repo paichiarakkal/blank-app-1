@@ -7,9 +7,6 @@ import plotly.express as px
 from streamlit_mic_recorder import speech_to_text
 from streamlit_autorefresh import st_autorefresh
 from fpdf import FPDF
-import re
-import urllib.parse
-import threading
 import json
 from groq import Groq
 from streamlit_calendar import calendar
@@ -245,20 +242,18 @@ else:
     t_in, t_out = (df['Credit'].sum(), df['Debit'].sum()) if not df.empty else (0.0, 0.0)
     bal = t_in - t_out
     
-    menu = ["💰 Add Entry", "📅 Calendar", "📊 Report", "🔍 History", "🤝 Debt Tracker", "🤖 AI Chat", "🧠 My AI Buddy"]
-    if st.session_state.user != "shabana": menu.insert(0, "🏠 Dashboard")
+    menu = ["🏠 Dashboard", "💰 Add Entry", "📅 Calendar", "📊 Report", "🔍 History", "🤝 Debt Tracker", "🤖 AI Chat", "🧠 My AI Buddy"]
     page = st.sidebar.radio("Menu", menu)
     if st.sidebar.button("Logout"): st.session_state.auth = False; st.rerun()
 
     # --- DASHBOARD ---
-    if page == "🏠 Dashboard" and not df.empty:
+    if page == "🏠 Dashboard":
         st.title("Financial Overview")
         st.markdown(f'<div class="purple-box"><h2 style="color:#00FF00;">Credit: ₹{t_in:,.2f}</h2><h2 style="color:#FF3131;">Debit: ₹{t_out:,.2f}</h2></div>', unsafe_allow_html=True)
 
     # --- ADD ENTRY ---
     elif page == "💰 Add Entry":
         st.title("Smart Voice Entry 🎙️")
-        v_raw = speech_to_text(language='ml', key='voice_v9')
         with st.form("entry_form", clear_on_submit=True):
             it = st.text_input("Description")
             am_str = st.text_input("Amount")
@@ -270,6 +265,61 @@ else:
                     add_new_entry(it, am, cat, ty, datetime.now().strftime("%Y-%m-%d"))
                     st.success("Saved! ✅"); st.rerun()
                 except Exception as e: st.error(f"Error! {e}")
+
+    # --- CALENDAR ---
+    elif page == "📅 Calendar":
+        st.title("P&L Calendar View 📅")
+        if not df.empty:
+            df_cal = df.dropna(subset=['Date'])
+            summary = df_cal.groupby(df_cal['Date'].dt.strftime('%Y-%m-%d')).agg({'Debit': 'sum', 'Credit': 'sum'}).reset_index()
+            events = []
+            for _, row in summary.iterrows():
+                if row['Credit'] > 0: events.append({"title": f" +₹{row['Credit']:,.0f}", "start": row['Date'], "backgroundColor": "#198754"})
+                if row['Debit'] > 0: events.append({"title": f" -₹{row['Debit']:,.0f}", "start": row['Date'], "backgroundColor": "#dc3545"})
+            
+            cal_data = calendar(events=events, options={"headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth"}, "initialView": "dayGridMonth"}, key="pnl_calendar")
+            
+            if cal_data and cal_data.get("callback") == "eventClick":
+                event_data = cal_data.get("eventClick", {}).get("event", {})
+                dt_click = event_data.get("start", "").split("T")[0]
+                if dt_click:
+                    st.markdown("---"); st.subheader(f"📋 Details for {pd.to_datetime(dt_click).strftime('%d %B %Y')}")
+                    day_df = df_cal[df_cal['Date'].dt.strftime('%Y-%m-%d') == dt_click].copy()
+                    if not day_df.empty:
+                        day_df['Date'] = day_df['Date'].dt.strftime('%d/%m/%Y')
+                        st.dataframe(day_df[['Date', 'Item', 'Debit', 'Credit']], use_container_width=True)
+        else:
+            st.info("No data available for calendar.")
+
+    # --- REPORT & HISTORY ---
+    elif page == "📊 Report" or page == "🔍 History":
+        st.title("Reports & History")
+        if not df.empty:
+            st.dataframe(df.iloc[::-1], use_container_width=True)
+        else:
+            st.info("No data found.")
+
+    # --- DEBT TRACKER ---
+    elif page == "🤝 Debt Tracker":
+        st.title("🤝 Debt Tracker")
+        st.info("Coming soon!")
+
+    # --- MY AI BUDDY ---
+    elif page == "🧠 My AI Buddy":
+        st.title("🧠 Your Personal AI Buddy")
+        st.write("Ask me anything in Malayalam or English.")
+        if "buddy_messages" not in st.session_state: st.session_state.buddy_messages = []
+        for msg in st.session_state.buddy_messages:
+            with st.chat_message(msg["role"]): st.markdown(msg["content"])
+        user_input = st.chat_input("Ask me anything...", key="buddy_chat_box")
+        if user_input:
+            st.session_state.buddy_messages.append({"role": "user", "content": user_input})
+            with st.chat_message("user"): st.markdown(user_input)
+            client = Groq(api_key=GROQ_API_KEY)
+            resp = client.chat.completions.create(model="openai/gpt-oss-120b", messages=[{"role": "user", "content": user_input}])
+            ai_reply = resp.choices[0].message.content
+            st.session_state.buddy_messages.append({"role": "assistant", "content": ai_reply})
+            st.rerun()
 
     # --- AI CHAT (MULTILINGUAL WITH YES/NO BUTTONS) ---
     elif page == "🤖 AI Chat":
