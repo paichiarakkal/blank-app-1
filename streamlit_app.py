@@ -369,16 +369,23 @@ else:
         final_prompt = v_raw if v_raw else prompt
 
         if final_prompt:
-            # യൂസർ മെസ്സേജ് സേവ് ചെയ്യുക
             st.session_state.messages.append({"role": "user", "content": final_prompt})
             with st.chat_message("user"): st.markdown(final_prompt)
 
             with st.spinner("AI ആലോചിക്കുന്നു..."):
                 try:
                     client = Groq(api_key=GROQ_API_KEY)
-                    system_instruction = f"നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. ബാലൻസ്: {bal} Rs. 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക."
+                    today_date = datetime.now().strftime("%Y-%m-%d")
                     
-                    messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-2:]]
+                    system_instruction = f"""
+                    നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. 
+                    ഇന്നത്തെ തീയതി: {today_date}.
+                    ബാലൻസ്: {bal} Rs. 
+                    'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക.
+                    തീയതി പ്രത്യേകം പറഞ്ഞിട്ടില്ലെങ്കിൽ, ഇന്നത്തെ തീയതി തന്നെ നൽകുക. ഒരിക്കലും null കൊടുക്കരുത്.
+                    """
+                    
+                    messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-3:]]
 
                     response = client.chat.completions.create(
                         model="openai/gpt-oss-120b", 
@@ -394,21 +401,29 @@ else:
                         for tool_call in response_message.tool_calls:
                             if tool_call.function.name == 'add_new_entry':
                                 args = json.loads(tool_call.function.arguments)
+                                
+                                entry_date = args.get("date")
+                                if not entry_date or entry_date == "null":
+                                    entry_date = datetime.now().strftime("%Y-%m-%d")
+
                                 st.session_state.pending_entry = {
                                     "item": args.get("item"),
                                     "amount": args.get("amount"),
                                     "category": args.get("category", "Others"),
                                     "type": args.get("type", "Debit"),
-                                    "date": args.get("date") or datetime.now().strftime("%Y-%m-%d")
+                                    "date": entry_date
                                 }
                                 ai_reply = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ?"
-                                st.session_state.messages.append({"role": "assistant", "content": ai_reply})
-                                with st.chat_message("assistant"): st.markdown(ai_reply)
+                                
+                                if not st.session_state.messages or st.session_state.messages[-1]["content"] != ai_reply:
+                                    st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                                
                                 st.rerun()
                                 
                     elif response_message.content:
                         ai_reply = response_message.content
-                        st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                        if not st.session_state.messages or st.session_state.messages[-1]["content"] != ai_reply:
+                            st.session_state.messages.append({"role": "assistant", "content": ai_reply})
                         with st.chat_message("assistant"): st.markdown(ai_reply)
 
                 except Exception as e:
