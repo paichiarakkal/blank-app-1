@@ -30,8 +30,14 @@ st_autorefresh(interval=60000, key="auto_refresh")
 
 st.markdown(f"""
     <style>
-    [data-testid="stAppViewContainer"] {{ background-image: linear-gradient(rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0.75)), url("{BG_IMAGE_URL}"); background-size: cover; background-attachment: fixed; }}
-    [data-testid="stSidebar"] {{ background: rgba(0, 0, 0, 0.85) !important; }}
+    [data-testid="stAppViewContainer"] {{
+        background-image: linear-gradient(rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0.75)), url("{BG_IMAGE_URL}");
+        background-size: cover;
+        background-attachment: fixed;
+    }}
+    [data-testid="stSidebar"] {{
+        background: rgba(0, 0, 0, 0.85) !important;
+    }}
     
     /* 3D Floating Cards & Glassmorphism */
     .purple-box {{
@@ -44,11 +50,11 @@ st.markdown(f"""
         transition: transform 0.3s ease, box-shadow 0.3s ease;
         text-align: center;
         margin-bottom: 25px;
-    }
+    }}
     .purple-box:hover {{
         transform: perspective(1000px) rotateX(0deg) scale(1.02);
         box-shadow: 0 20px 40px rgba(255, 215, 0, 0.3);
-    }
+    }}
     
     /* 3D Glowing Buttons */
     .stButton>button {{
@@ -61,19 +67,46 @@ st.markdown(f"""
         border: none;
         width: 100%;
         transition: all 0.3s ease;
-    }
+    }}
     .stButton>button:hover {{
         transform: translateY(-3px);
         box-shadow: 0 12px 25px rgba(255, 215, 0, 0.6);
-    }
+    }}
     
-    .login-card {{ background: rgba(0, 0, 0, 0.85); padding: 30px; border-radius: 20px; max-width: 450px; margin: auto; margin-top: 50px; border: 2px solid rgba(255, 215, 0, 0.3); }}
-    h1, h2, h3, p, label {{ color: white !important; font-weight: bold !important; }}
+    .login-card {{
+        background: rgba(0, 0, 0, 0.85);
+        padding: 30px;
+        border-radius: 20px;
+        max-width: 450px;
+        margin: auto;
+        margin-top: 50px;
+        border: 2px solid rgba(255, 215, 0, 0.3);
+    }}
+    h1, h2, h3, p, label {{
+        color: white !important;
+        font-weight: bold !important;
+    }}
     
-    [data-testid="stChatMessage"] {{ background-color: #202c33 !important; border-radius: 12px !important; padding: 12px 16px !important; margin-bottom: 8px !important; border: none !important; }}
-    [data-testid="stChatInput"] {{ background-color: #2a3942 !important; border-radius: 24px !important; border: 1px solid #2a3942 !important; padding: 5px !important; }}
-    [data-testid="stChatInput"] textarea {{ color: white !important; }}
-    input, textarea, select {{ color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important; }}
+    [data-testid="stChatMessage"] {{
+        background-color: #202c33 !important;
+        border-radius: 12px !important;
+        padding: 12px 16px !important;
+        margin-bottom: 8px !important;
+        border: none !important;
+    }}
+    [data-testid="stChatInput"] {{
+        background-color: #2a3942 !important;
+        border-radius: 24px !important;
+        border: 1px solid #2a3942 !important;
+        padding: 5px !important;
+    }}
+    [data-testid="stChatInput"] textarea {{
+        color: white !important;
+    }}
+    input, textarea, select {{
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+    }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -205,8 +238,6 @@ Strict Instructions:
 1. Detect the user's language (Malayalam, English, Hindi, Arabic, etc.) and ALWAYS reply in the SAME language.
 2. ONLY discuss expenses, income, budgets, and financial records. NEVER talk about lotteries, games, or unrelated topics.
 3. If the user mentions an expense or income (e.g., 'tea 10', 'ബിരിയാണി 150'), do NOT call the tool immediately.
-4. Instead, ask for confirmation in the user's language (e.g., in Malayalam: "ഈ എൻട്രി ഗൂഗിൾ ഷീറ്റിലേക്ക് ചേർക്കട്ടെയോ? താഴെ കാണുന്ന YES അല്ലെങ്കിൽ NO ബട്ടൺ അമർത്തുക.").
-5. Only call `add_new_entry` or `add_multiple_entries` after the user replies with 'Yes'.
 """
     messages_for_api = [{"role": "system", "content": system_instruction}] + [
         {"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-6:]
@@ -316,7 +347,7 @@ else:
                 dt_click = event_data.get("start", "").split("T")[0]
                 if dt_click:
                     st.markdown("---"); st.subheader(f"📋 Details for {pd.to_datetime(dt_click).strftime('%d %B %Y')}")
-                    day_df = df_cal[df_cal['Date'].dt.strftime('%Y-%m-%d') == dt_click].copy()
+                    day_df = df_cal[df_cal['Date'].dt.strftime('%Y-%m-%d'] == dt_click].copy()
                     if not day_df.empty:
                         day_df['Date'] = day_df['Date'].dt.strftime('%d/%m/%Y')
                         st.dataframe(day_df[['Date', 'Item', 'Debit', 'Credit']], use_container_width=True)
