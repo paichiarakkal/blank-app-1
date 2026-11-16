@@ -246,11 +246,16 @@ else:
         st.title("Financial Overview")
         st.markdown(f'<div class="purple-box"><h2 style="color:#00FF00;">Credit: ₹{t_in:,.2f}</h2><h2 style="color:#FF3131;">Debit: ₹{t_out:,.2f}</h2></div>', unsafe_allow_html=True)
 
-    # --- ADD ENTRY ---
+    # --- ADD ENTRY (WITH VOICE MIC) ---
     elif page == "💰 Add Entry":
         st.title("Smart Voice Entry 🎙️")
+        st.write("Click the mic below to speak your expense:")
+        voice_text = speech_to_text(language='ml', key='voice_add_entry')
+        if voice_text:
+            st.info(f"🎙️ Heard: {voice_text}")
+        
         with st.form("entry_form", clear_on_submit=True):
-            it = st.text_input("Description")
+            it = st.text_input("Description", value=voice_text if voice_text else "")
             am_str = st.text_input("Amount")
             cat = st.selectbox("Category", ["Food", "Shop", "Fish", "Travel", "Rent", "Others"])
             ty = st.radio("Type", ["Debit", "Credit"], horizontal=True)
@@ -316,11 +321,15 @@ else:
             st.session_state.buddy_messages.append({"role": "assistant", "content": ai_reply})
             st.rerun()
 
-    # --- AI CHAT (MULTILINGUAL WITH YES/NO BUTTONS) ---
+    # --- AI CHAT (MULTILINGUAL WITH VOICE & YES/NO BUTTONS) ---
     elif page == "🤖 AI Chat":
         st.title("🤖 Multilingual AI Agent")
-        st.write("You can chat in Malayalam, English, Arabic, or Hindi. (ഉദാ: 'Coffee 10' അല്ലെങ്കിൽ 'ബിരിയാണി 150')")
+        st.write("You can chat or use voice in Malayalam, English, Arabic, or Hindi.")
         
+        # Voice mic input directly in AI chat
+        st.write("🎙️ **Voice Input:**")
+        ai_voice_input = speech_to_text(language='ml', key='ai_chat_voice')
+
         if "messages" not in st.session_state: st.session_state.messages = []
 
         if st.button("🗑️ Clear Chat"):
@@ -348,7 +357,11 @@ else:
                     st.session_state.messages.append({"role": "assistant", "content": "❌ Cancelled."})
                     st.rerun()
 
-        prompt = st.chat_input("Type in any language (English, Malayalam, Arabic, Hindi)...")
+        prompt = st.chat_input("Type in any language or use voice above...")
+
+        # If user spoke into the voice mic, treat it as the prompt
+        if ai_voice_input and not prompt:
+            prompt = ai_voice_input
 
         if prompt:
             st.session_state.messages.append({"role": "user", "content": prompt})
