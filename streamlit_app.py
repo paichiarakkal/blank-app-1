@@ -32,10 +32,42 @@ st.markdown(f"""
     <style>
     [data-testid="stAppViewContainer"] {{ background-image: linear-gradient(rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0.75)), url("{BG_IMAGE_URL}"); background-size: cover; background-attachment: fixed; }}
     [data-testid="stSidebar"] {{ background: rgba(0, 0, 0, 0.85) !important; }}
-    .stButton>button {{ background-color: #FFD700; color: #000; border-radius: 10px; font-weight: bold; width: 100%; }}
-    .balance-banner {{ background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(10px); padding: 25px; border-radius: 15px; border-left: 10px solid #FFD700; text-align: center; margin-bottom: 25px; }}
-    .purple-box {{ background: rgba(0, 0, 0, 0.7); padding: 20px; border-radius: 25px; border: 2px solid rgba(255, 215, 0, 0.3); text-align: center; margin-bottom: 20px; }}
-    .login-card {{ background: rgba(0, 0, 0, 0.8); padding: 25px; border-radius: 20px; max-width: 450px; margin: auto; margin-top: 50px; }}
+    
+    /* 3D Floating Cards & Glassmorphism */
+    .purple-box {{
+        background: linear-gradient(135deg, rgba(20, 20, 30, 0.8), rgba(40, 40, 60, 0.9));
+        padding: 25px;
+        border-radius: 20px;
+        border: 2px solid rgba(255, 215, 0, 0.4);
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5), inset 0 0 15px rgba(255, 215, 0, 0.1);
+        transform: perspective(1000px) rotateX(2deg);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        text-align: center;
+        margin-bottom: 25px;
+    }
+    .purple-box:hover {{
+        transform: perspective(1000px) rotateX(0deg) scale(1.02);
+        box-shadow: 0 20px 40px rgba(255, 215, 0, 0.3);
+    }
+    
+    /* 3D Glowing Buttons */
+    .stButton>button {{
+        background: linear-gradient(135deg, #FFD700, #FFA500);
+        color: #000;
+        border-radius: 12px;
+        font-weight: bold;
+        padding: 10px 20px;
+        box-shadow: 0 8px 20px rgba(255, 215, 0, 0.4);
+        border: none;
+        width: 100%;
+        transition: all 0.3s ease;
+    }
+    .stButton>button:hover {{
+        transform: translateY(-3px);
+        box-shadow: 0 12px 25px rgba(255, 215, 0, 0.6);
+    }
+    
+    .login-card {{ background: rgba(0, 0, 0, 0.85); padding: 30px; border-radius: 20px; max-width: 450px; margin: auto; margin-top: 50px; border: 2px solid rgba(255, 215, 0, 0.3); }}
     h1, h2, h3, p, label {{ color: white !important; font-weight: bold !important; }}
     
     [data-testid="stChatMessage"] {{ background-color: #202c33 !important; border-radius: 12px !important; padding: 12px 16px !important; margin-bottom: 8px !important; border: none !important; }}
@@ -166,14 +198,15 @@ def run_ai_expense_agent(user_text, bal):
     utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     
     system_instruction = f"""
-You are a multilingual financial AI assistant. 
+You are PAICHI EXPENSES v6.0, a strict financial AI assistant for tracking expenses and income only. 
 Current time: {utc_now}. Current Balance: ₹{bal:,.2f}. 
 
-Instructions:
-1. Detect the user's language (Malayalam, English, Hindi, Arabic, etc.) and ALWAYS reply in the SAME language the user used.
-2. If the user mentions an expense or income (e.g., 'tea 10', 'ബിരിയാണി 150'), do NOT call the tool immediately.
-3. Instead, ask for confirmation in the user's language (e.g., in Malayalam: "ഈ എൻട്രി ഗൂഗിൾ ഷീറ്റിലേക്ക് ചേർക്കട്ടെയോ? താഴെ കാണുന്ന YES അല്ലെങ്കിൽ NO ബട്ടൺ അമർത്തുക.").
-4. Only call `add_new_entry` or `add_multiple_entries` after the user replies with 'Yes'.
+Strict Instructions:
+1. Detect the user's language (Malayalam, English, Hindi, Arabic, etc.) and ALWAYS reply in the SAME language.
+2. ONLY discuss expenses, income, budgets, and financial records. NEVER talk about lotteries, games, or unrelated topics.
+3. If the user mentions an expense or income (e.g., 'tea 10', 'ബിരിയാണി 150'), do NOT call the tool immediately.
+4. Instead, ask for confirmation in the user's language (e.g., in Malayalam: "ഈ എൻട്രി ഗൂഗിൾ ഷീറ്റിലേക്ക് ചേർക്കട്ടെയോ? താഴെ കാണുന്ന YES അല്ലെങ്കിൽ NO ബട്ടൺ അമർത്തുക.").
+5. Only call `add_new_entry` or `add_multiple_entries` after the user replies with 'Yes'.
 """
     messages_for_api = [{"role": "system", "content": system_instruction}] + [
         {"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-6:]
@@ -244,15 +277,14 @@ else:
     # --- DASHBOARD ---
     if page == "🏠 Dashboard":
         st.title("Financial Overview")
-        st.markdown(f'<div class="purple-box"><h2 style="color:#00FF00;">Credit: ₹{t_in:,.2f}</h2><h2 style="color:#FF3131;">Debit: ₹{t_out:,.2f}</h2></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="purple-box"><h2 style="color:#00FF00;">Credit: ₹{t_in:,.2f}</h2><h2 style="color:#FF3131;">Debit: ₹{t_out:,.2f}</h2><h3 style="color:#FFD700;">Balance: ₹{bal:,.2f}</h3></div>', unsafe_allow_html=True)
 
-    # --- ADD ENTRY (WITH VOICE MIC) ---
+    # --- ADD ENTRY ---
     elif page == "💰 Add Entry":
         st.title("Smart Voice Entry 🎙️")
         st.write("Click the mic below to speak your expense:")
         voice_text = speech_to_text(language='ml', key='voice_add_entry')
-        if voice_text:
-            st.info(f"🎙️ Heard: {voice_text}")
+        if voice_text: st.info(f"🎙️ Heard: {voice_text}")
         
         with st.form("entry_form", clear_on_submit=True):
             it = st.text_input("Description", value=voice_text if voice_text else "")
@@ -326,8 +358,6 @@ else:
         st.title("🤖 Multilingual AI Agent")
         st.write("You can chat or use voice in Malayalam, English, Arabic, or Hindi.")
         
-        # Voice mic input directly in AI chat
-        st.write("🎙️ **Voice Input:**")
         ai_voice_input = speech_to_text(language='ml', key='ai_chat_voice')
 
         if "messages" not in st.session_state: st.session_state.messages = []
@@ -359,7 +389,6 @@ else:
 
         prompt = st.chat_input("Type in any language or use voice above...")
 
-        # If user spoke into the voice mic, treat it as the prompt
         if ai_voice_input and not prompt:
             prompt = ai_voice_input
 
