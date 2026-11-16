@@ -378,13 +378,15 @@ else:
                         client = Groq(api_key=GROQ_API_KEY)
                         system_instruction = f"നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. ബാലൻസ്: {bal} Rs. 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക."
                         
-                        messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
+                                                messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
 
                         response = client.chat.completions.create(
-    model="llama-3.1-8b-instant", # ഇവിടവും മാറ്റുക
-    messages=messages, 
-    max_tokens=1024
-)
+                            model="llama-3.1-8b-instant", 
+                            messages=messages_for_api, # ✅ ഇതാണ് ശരിയായ പേര്
+                            tools=tools,
+                            tool_choice="auto",
+                            max_tokens=1024
+                        )
                         
 
                         response_message = response.choices[0].message
