@@ -323,8 +323,7 @@ else:
                     st.session_state.buddy_messages.append({"role": "assistant", "content": ai_reply})
                     with st.chat_message("assistant"): st.markdown(ai_reply)
                 except Exception as e: st.error(f"Error: {e}")
-
-    # --- AI CHAT (AI Agent with Confirmation) ---
+ # --- AI CHAT (AI Agent with Confirmation) ---
 elif page == "🤖 AI Chat":
     st.title("🤖 AI Agent & Assistant")
     
