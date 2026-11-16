@@ -70,7 +70,7 @@ if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user 
 if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Shop kuri book"
 if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
 if "last_processed_msg" not in st.session_state: st.session_state.last_processed_msg = None
-if "pending_entry" not in st.session_state: st.session_state.pending_entry = None # കൺഫേം ചെയ്യാനുള്ള ഡാറ്റ
+if "pending_entry" not in st.session_state: st.session_state.pending_entry = None
 
 # --- HELPER FUNCTIONS ---
 def send_whatsapp_auto(msg):
@@ -410,4 +410,4 @@ else:
                         with st.chat_message("assistant"): st.markdown(ai_reply)
 
                 except Exception as e:
-                    st.error(f"AI Error: {str(e)"}
+                    st.error(f"AI Error: {str(e)}")
