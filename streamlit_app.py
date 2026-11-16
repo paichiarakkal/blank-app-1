@@ -325,7 +325,7 @@ else:
                     with st.chat_message("assistant"): st.markdown(ai_reply)
                 except Exception as e: st.error(f"Error: {e}")
 
-    # --- AI CHAT (AI Agent with Confirmation & Loop Fixed) ---
+        # --- AI CHAT (AI Agent with Confirmation) ---
     elif page == "🤖 AI Chat":
         st.title("🤖 AI Agent & Assistant")
         
@@ -337,7 +337,7 @@ else:
             col1, col2 = st.columns(2)
             if col1.button("✅ Yes, Save it", key="save_entry_btn"):
                 entry_data = st.session_state.pending_entry
-                st.session_state.pending_entry = None  # ലൂപ്പ് ഒഴിവാക്കാൻ ആദ്യം തന്നെ ക്ലിയർ ചെയ്യുന്നു
+                st.session_state.pending_entry = None  
                 
                 result = add_new_entry(
                     item=entry_data['item'], 
@@ -378,16 +378,15 @@ else:
                         client = Groq(api_key=GROQ_API_KEY)
                         system_instruction = f"നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. ബാലൻസ്: {bal} Rs. 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക."
                         
-                                                messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
+                        messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
 
                         response = client.chat.completions.create(
                             model="llama-3.1-8b-instant", 
-                            messages=messages_for_api, # ✅ ഇതാണ് ശരിയായ പേര്
+                            messages=messages_for_api,
                             tools=tools,
                             tool_choice="auto",
                             max_tokens=1024
                         )
-                        
 
                         response_message = response.choices[0].message
                         
