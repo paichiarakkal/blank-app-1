@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 import random
 import plotly.express as px
 from streamlit_mic_recorder import speech_to_text
+from streamlit_autorefresh import st_autorefresh
+from fpdf import FPDF
 import json
 from groq import Groq
 from streamlit_calendar import calendar
@@ -25,6 +27,8 @@ USER_PINS = {
 }
 BG_IMAGE_URL = "https://raw.githubusercontent.com/paichiarakkal/paichiarakkal/main/profile.jpg"
 
+st_autorefresh(interval=60000, key="auto_refresh")
+
 st.markdown(f"""
     <style>
     [data-testid="stAppViewContainer"] {{
@@ -36,24 +40,38 @@ st.markdown(f"""
         background: rgba(0, 0, 0, 0.85) !important;
     }}
     
+    /* 3D Floating Cards & Glassmorphism */
     .purple-box {{
         background: linear-gradient(135deg, rgba(20, 20, 30, 0.8), rgba(40, 40, 60, 0.9));
         padding: 25px;
         border-radius: 20px;
         border: 2px solid rgba(255, 215, 0, 0.4);
-        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5), inset 0 0 15px rgba(255, 215, 0, 0.1);
+        transform: perspective(1000px) rotateX(2deg);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
         text-align: center;
         margin-bottom: 25px;
     }}
+    .purple-box:hover {{
+        transform: perspective(1000px) rotateX(0deg) scale(1.02);
+        box-shadow: 0 20px 40px rgba(255, 215, 0, 0.3);
+    }}
     
+    /* 3D Glowing Buttons */
     .stButton>button {{
         background: linear-gradient(135deg, #FFD700, #FFA500);
         color: #000;
         border-radius: 12px;
         font-weight: bold;
         padding: 10px 20px;
+        box-shadow: 0 8px 20px rgba(255, 215, 0, 0.4);
         border: none;
         width: 100%;
+        transition: all 0.3s ease;
+    }}
+    .stButton>button:hover {{
+        transform: translateY(-3px);
+        box-shadow: 0 12px 25px rgba(255, 215, 0, 0.6);
     }}
     
     .login-card {{
@@ -75,6 +93,20 @@ st.markdown(f"""
         border-radius: 12px !important;
         padding: 12px 16px !important;
         margin-bottom: 8px !important;
+        border: none !important;
+    }}
+    [data-testid="stChatInput"] {{
+        background-color: #2a3942 !important;
+        border-radius: 24px !important;
+        border: 1px solid #2a3942 !important;
+        padding: 5px !important;
+    }}
+    [data-testid="stChatInput"] textarea {{
+        color: white !important;
+    }}
+    input, textarea, select {{
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
     }}
     </style>
 """, unsafe_allow_html=True)
@@ -127,6 +159,26 @@ def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None
         return f"Success: {item} - ₹{amount} ({type}) on {entry_date}"
     except Exception as e: return f"Error: {str(e)}"
 
+def add_multiple_entries(entries_list):
+    results = []
+    try:
+        for entry in entries_list:
+            item = entry.get('item', 'Unknown')
+            amount = entry.get('amount', 0)
+            category = entry.get('category', 'Others')
+            entry_type = entry.get('type', 'Debit')
+            entry_date = entry.get('date', datetime.now().strftime('%Y-%m-%d'))
+            payload = {
+                "item": item, "amount": amount, "category": category,
+                "type": entry_type, "date": entry_date, "sender": st.session_state.user.capitalize()
+            }
+            requests.post(WEB_APP_URL, json=payload, timeout=10)
+            results.append(f'{item} - ₹{amount}')
+        send_whatsapp_auto(f'✅ *AI Multi-Entries Added*\n' + '\n'.join([f'• {r}' for r in results]))
+        load_data.clear()
+        return f'Success: Added {len(results)} items.'
+    except Exception as e: return f'Error: {str(e)}'
+
 tools = [
     {
         "type": "function",
@@ -145,6 +197,33 @@ tools = [
                 "required": ["item", "amount"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_multiple_entries",
+            "description": "Add multiple expenses or incomes to Google Sheet ONLY after user confirms with Yes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entries_list": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "item": {"type": "string"},
+                                "amount": {"type": "number"},
+                                "category": {"type": "string"},
+                                "type": {"type": "string", "enum": ["Debit", "Credit"]},
+                                "date": {"type": "string"}
+                            },
+                            "required": ["item", "amount"]
+                        }
+                    }
+                },
+                "required": ["entries_list"]
+            }
+        }
     }
 ]
 
@@ -153,17 +232,18 @@ def run_ai_expense_agent(user_text, bal):
     utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     
     system_instruction = f"""
-You are PAICHI EXPENSES v6.0, a strict financial AI assistant. 
+You are PAICHI EXPENSES v6.0, a strict financial AI assistant for tracking expenses and income only. 
 Current time: {utc_now}. Current Balance: ₹{bal:,.2f}. 
 
-Instructions:
-1. Detect user's language and ALWAYS reply in the SAME language.
-2. If the user asks for balance, total, or general info, answer directly with the current balance (₹{bal:,.2f}).
-3. If the user mentions a new expense or income to add (e.g., 'tea 10', 'ബിരിയാണി 150'), do NOT call the tool immediately. Instead, ask for confirmation: "ഈ എൻട്രി ഗൂഗിൾ ഷീറ്റിലേക്ക് ചേർക്കട്ടെയോ?".
-4. Only call `add_new_entry` after the user replies with 'Yes'.
+Strict Instructions:
+1. Detect the user's language (Malayalam, English, Hindi, Arabic, etc.) and ALWAYS reply in the SAME language.
+2. ONLY discuss expenses, income, budgets, and financial records. NEVER talk about lotteries, games, or unrelated topics.
+3. If the user mentions an expense or income (e.g., 'tea 10', 'ബിരിയാണി 150'), do NOT call the tool immediately.
+4. Instead, ask for confirmation in the user's language (e.g., in Malayalam: "ഈ എൻട്രി ഗൂഗിൾ ഷീറ്റിലേക്ക് ചേർക്കട്ടെയോ? താഴെ കാണുന്ന YES അല്ലെങ്കിൽ NO ബട്ടൺ അമർത്തുക.").
+5. Only call `add_new_entry` or `add_multiple_entries` after the user replies with 'Yes'.
 """
     messages_for_api = [{"role": "system", "content": system_instruction}] + [
-        {"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]
+        {"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-6:]
     ] + [{"role": "user", "content": user_text}]
 
     response = client.chat.completions.create(
@@ -191,10 +271,18 @@ Instructions:
                     ai_reply = f"✅ Added '{args.get('item')}' (₹{args.get('amount')}) to Google Sheet!"
                     entry_saved = True
                 else: ai_reply = f"❌ {result}"
+
+            elif tool_call.function.name == 'add_multiple_entries':
+                args = json.loads(tool_call.function.arguments)
+                result = add_multiple_entries(entries_list=args.get('entries_list', []))
+                if 'Success' in result:
+                    ai_reply = '✅ All entries successfully added to Google Sheet!'
+                    entry_saved = True
+                else: ai_reply = f'❌ {result}'
     elif response_message.content:
         ai_reply = response_message.content
     else:
-        ai_reply = f"ഇന്നത്തെ മൊത്തം ബാലൻസ് ₹{bal:,.2f} ആണ്."
+        ai_reply = "Sorry, I couldn't understand."
 
     return ai_reply, entry_saved
 
@@ -228,6 +316,7 @@ else:
     # --- ADD ENTRY ---
     elif page == "💰 Add Entry":
         st.title("Smart Voice Entry 🎙️")
+        st.write("Click the mic below to speak your expense:")
         voice_text = speech_to_text(language='ml', key='voice_add_entry')
         if voice_text: st.info(f"🎙️ Heard: {voice_text}")
         
@@ -255,7 +344,17 @@ else:
                 if row['Credit'] > 0: events.append({"title": f" +₹{row['Credit']:,.0f}", "start": row['DateStr'], "backgroundColor": "#198754"})
                 if row['Debit'] > 0: events.append({"title": f" -₹{row['Debit']:,.0f}", "start": row['DateStr'], "backgroundColor": "#dc3545"})
             
-            calendar(events=events, options={"headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth"}, "initialView": "dayGridMonth"}, key="pnl_calendar")
+            cal_data = calendar(events=events, options={"headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth"}, "initialView": "dayGridMonth"}, key="pnl_calendar")
+            
+            if cal_data and cal_data.get("callback") == "eventClick":
+                event_data = cal_data.get("eventClick", {}).get("event", {})
+                dt_click = event_data.get("start", "").split("T")[0]
+                if dt_click:
+                    st.markdown("---"); st.subheader(f"📋 Details for {pd.to_datetime(dt_click).strftime('%d %B %Y')}")
+                    day_df = df_cal[df_cal['DateStr'] == dt_click].copy()
+                    if not day_df.empty:
+                        day_df['Date'] = day_df['Date'].dt.strftime('%d/%m/%Y')
+                        st.dataframe(day_df[['Date', 'Item', 'Debit', 'Credit']], use_container_width=True)
         else:
             st.info("No data available for calendar.")
 
@@ -275,22 +374,27 @@ else:
     # --- MY AI BUDDY ---
     elif page == "🧠 My AI Buddy":
         st.title("🧠 Your Personal AI Buddy")
+        st.write("Ask me anything in Malayalam or English.")
         if "buddy_messages" not in st.session_state: st.session_state.buddy_messages = []
         for msg in st.session_state.buddy_messages:
             with st.chat_message(msg["role"]): st.markdown(msg["content"])
         user_input = st.chat_input("Ask me anything...", key="buddy_chat_box")
         if user_input:
             st.session_state.buddy_messages.append({"role": "user", "content": user_input})
+            with st.chat_message("user"): st.markdown(user_input)
             client = Groq(api_key=GROQ_API_KEY)
             resp = client.chat.completions.create(model="openai/gpt-oss-120b", messages=[{"role": "user", "content": user_input}])
             ai_reply = resp.choices[0].message.content
             st.session_state.buddy_messages.append({"role": "assistant", "content": ai_reply})
             st.rerun()
 
-    # --- AI CHAT ---
+    # --- AI CHAT (MULTILINGUAL WITH VOICE & YES/NO BUTTONS) ---
     elif page == "🤖 AI Chat":
         st.title("🤖 Multilingual AI Agent")
+        st.write("You can chat or use voice in Malayalam, English, Arabic, or Hindi.")
         
+        ai_voice_input = speech_to_text(language='ml', key='ai_chat_voice')
+
         if "messages" not in st.session_state: st.session_state.messages = []
 
         if st.button("🗑️ Clear Chat"):
@@ -302,25 +406,26 @@ else:
 
         # --- YES / NO QUICK ACTION BUTTONS ---
         if st.session_state.messages and st.session_state.messages[-1]["role"] == "assistant":
-            last_msg = st.session_state.messages[-1]["content"]
-            if "ചേർക്കട്ടെയോ" in last_msg or "Yes" in last_msg or "YES" in last_msg:
-                col_y, col_n = st.columns(2)
-                with col_y:
-                    if st.button("✅ YES", key="btn_yes_action"):
-                        st.session_state.messages.append({"role": "user", "content": "Yes"})
-                        with st.spinner("Saving..."):
-                            try:
-                                ai_reply, _ = run_ai_expense_agent("Yes", bal)
-                                st.session_state.messages.append({"role": "assistant", "content": ai_reply})
-                            except Exception as e: st.error(f"Error: {e}")
-                        st.rerun()
-                with col_n:
-                    if st.button("❌ NO", key="btn_no_action"):
-                        st.session_state.messages.append({"role": "user", "content": "No"})
-                        st.session_state.messages.append({"role": "assistant", "content": "❌ Cancelled."})
-                        st.rerun()
+            col_y, col_n = st.columns(2)
+            with col_y:
+                if st.button("✅ YES", use_container_width=True):
+                    st.session_state.messages.append({"role": "user", "content": "Yes"})
+                    with st.spinner("Saving..."):
+                        try:
+                            ai_reply, _ = run_ai_expense_agent("Yes", bal)
+                            st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                        except Exception as e: st.error(f"Error: {e}")
+                    st.rerun()
+            with col_n:
+                if st.button("❌ NO", use_container_width=True):
+                    st.session_state.messages.append({"role": "user", "content": "No"})
+                    st.session_state.messages.append({"role": "assistant", "content": "❌ Cancelled."})
+                    st.rerun()
 
-        prompt = st.chat_input("Type your expense or question here...")
+        prompt = st.chat_input("Type in any language or use voice above...")
+
+        if ai_voice_input and not prompt:
+            prompt = ai_voice_input
 
         if prompt:
             st.session_state.messages.append({"role": "user", "content": prompt})
