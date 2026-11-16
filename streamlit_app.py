@@ -69,7 +69,6 @@ st.markdown(f"""
 if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user = False, ""
 if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Shop kuri book"
 if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
-if "last_processed_msg" not in st.session_state: st.session_state.last_processed_msg = None
 if "pending_entry" not in st.session_state: st.session_state.pending_entry = None
 
 # --- HELPER FUNCTIONS ---
@@ -335,6 +334,7 @@ else:
         if st.session_state.pending_entry:
             st.warning(f"⏳ നിങ്ങൾ പറഞ്ഞത്: **{st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}**. ഇത് എൻട്രി ചെയ്യണോ?")
             col1, col2 = st.columns(2)
+            
             if col1.button("✅ Yes, Save it"):
                 result = add_new_entry(
                     item=st.session_state.pending_entry['item'], 
@@ -358,15 +358,18 @@ else:
                 st.session_state.pending_entry = None
                 st.rerun()
 
+        # ചാറ്റ് ഹിസ്റ്ററി കാണിക്കുക
         for message in st.session_state.messages:
             with st.chat_message(message["role"]): st.markdown(message["content"])
 
+        # യൂസർ ഇൻപുട്ട് എടുക്കുക
         v_raw = speech_to_text(language='ml', key='ai_voice_input')
         prompt = st.chat_input("Ask anything or add expense...", key="ai_chat_box")
+        
         final_prompt = v_raw if v_raw else prompt
 
-        if final_prompt and final_prompt != st.session_state.last_processed_msg:
-            st.session_state.last_processed_msg = final_prompt
+        if final_prompt:
+            # യൂസർ മെസ്സേജ് സേവ് ചെയ്യുക
             st.session_state.messages.append({"role": "user", "content": final_prompt})
             with st.chat_message("user"): st.markdown(final_prompt)
 
@@ -391,7 +394,6 @@ else:
                         for tool_call in response_message.tool_calls:
                             if tool_call.function.name == 'add_new_entry':
                                 args = json.loads(tool_call.function.arguments)
-                                # പകരം pending_entry എന്നതിൽ സേവ് ചെയ്യുന്നു.
                                 st.session_state.pending_entry = {
                                     "item": args.get("item"),
                                     "amount": args.get("amount"),
