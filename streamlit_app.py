@@ -6,7 +6,6 @@ import random
 import plotly.express as px
 from streamlit_mic_recorder import speech_to_text
 from streamlit_autorefresh import st_autorefresh
-from fpdf import FPDF
 import json
 from groq import Groq
 from streamlit_calendar import calendar
@@ -36,8 +35,6 @@ st.markdown(f"""
     .stButton>button {{ background-color: #FFD700; color: #000; border-radius: 10px; font-weight: bold; width: 100%; }}
     .balance-banner {{ background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(10px); padding: 25px; border-radius: 15px; border-left: 10px solid #FFD700; text-align: center; margin-bottom: 25px; }}
     .purple-box {{ background: rgba(0, 0, 0, 0.7); padding: 20px; border-radius: 25px; border: 2px solid rgba(255, 215, 0, 0.3); text-align: center; margin-bottom: 20px; }}
-    .category-box {{ background: rgba(0, 0, 0, 0.7); padding: 15px; border-radius: 15px; text-align: center; border-bottom: 4px solid #FFD700; margin-bottom: 15px; }}
-    .alert-banner {{ background-color: #ff4d4d; color: white; padding: 10px; border-radius: 10px; text-align: center; font-weight: bold; margin-bottom: 20px; }}
     .login-card {{ background: rgba(0, 0, 0, 0.8); padding: 25px; border-radius: 20px; max-width: 450px; margin: auto; margin-top: 50px; }}
     h1, h2, h3, p, label {{ color: white !important; font-weight: bold !important; }}
     
@@ -49,8 +46,6 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user = False, ""
-if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Shop kuri book"
-if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
 
 # --- HELPER FUNCTIONS ---
 def send_whatsapp_auto(msg):
