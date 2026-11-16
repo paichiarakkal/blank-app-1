@@ -380,8 +380,8 @@ else:
                         
                         messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
 
-                        response = client.chat.completions.create(
-                            model="llama-3.1-8b-instant", 
+                                                response = client.chat.completions.create(
+                            model="openai/gpt-oss-120b", # ഈ മോഡൽ നെയിം നൽകുക
                             messages=messages_for_api,
                             tools=tools,
                             tool_choice="auto",
