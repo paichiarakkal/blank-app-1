@@ -8,32 +8,31 @@ from streamlit_mic_recorder import speech_to_text
 from streamlit_autorefresh import st_autorefresh
 from fpdf import FPDF
 import re
-import urllib.parse
-import threading
 import json
 from groq import Groq
 from streamlit_calendar import calendar
 from twilio.rest import Client
 
 # --- STREAMLIT UI SETUP (ഇത് ആദ്യം വേണം) ---
-st.set_page_config(page_title="PAICHI EXPENSES v6.0", layout="wide")
+st.set_page_config(page_title="PAICHI EXPENSES", layout="wide")
 
 # --- CONFIG & SETTINGS (SECRETS ൽ നിന്ന് എടുക്കുന്നു) ---
 CSV_URL = st.secrets.get("GOOGLE_SHEET_CSV", "")
 WEB_APP_URL = st.secrets.get("APPS_SCRIPT_URL", "")
-
 WA_PHONE = "971551347989"
+
 USER_PINS = {
     "faisal": st.secrets.get("PIN_FAISAL", ""),
     "shabana": st.secrets.get("PIN_SHABANA", ""),
     "admin": st.secrets.get("PIN_ADMIN", "")
 }
 BG_IMAGE_URL = "https://raw.githubusercontent.com/paichiarakkal/paichiarakkal/main/profile.jpg"
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
 st_autorefresh(interval=60000, key="auto_refresh")
 
 # ============================================
-# 🎨 3D GLASSMORPHISM CSS
+# 🎨 3D GLASSMORPHISM CSS (പുതിയ ഡിസൈൻ)
 # ============================================
 st.markdown(f"""
     <style>
@@ -190,7 +189,7 @@ def send_whatsapp_auto(msg):
             client.messages.create(
                 from_='whatsapp:+14155238886',
                 body=msg,
-                to=f'whatsapp:+{971551347989}'
+                to=f'whatsapp:+{WA_PHONE}'
             )
     except Exception as e:
         pass 
@@ -207,8 +206,7 @@ def parse_mixed_dates(date_series):
 @st.cache_data(ttl=10)
 def load_data():
     try:
-        if not CSV_URL:
-            return pd.DataFrame()
+        if not CSV_URL: return pd.DataFrame()
         df = pd.read_csv(f"{CSV_URL}&r={random.randint(1,999)}")
         df.columns = df.columns.str.strip()
         df['Date'] = parse_mixed_dates(df['Date'])
@@ -245,26 +243,14 @@ def create_pdf(df):
         return bytes(pdf.output())
     except: return None
 
-# --- GROQ AI SETUP ---
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
-
 def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None):
     try:
         if not entry_date: entry_date = datetime.now().strftime("%Y-%m-%d")
-        
-        payload = {
-            "item": item,
-            "amount": amount,
-            "category": category,
-            "type": type,
-            "date": entry_date,
-            "sender": st.session_state.user.capitalize()
-        }
+        payload = {"item": item, "amount": amount, "category": category, "type": type, "date": entry_date, "sender": st.session_state.user.capitalize()}
         requests.post(WEB_APP_URL, json=payload, timeout=10)
         send_whatsapp_auto(f"✅ *AI Entry Added*\n📝 Item: {item}\n💰 Amt: ₹{amount}")
         return f"Success: {item} - ₹{amount} ({type}) on {entry_date}"
-    except Exception as e:
-        return f"Error: {str(e)}"
+    except Exception as e: return f"Error: {str(e)}"
 
 def add_multiple_entries(entries_list):
     results = []
@@ -275,70 +261,17 @@ def add_multiple_entries(entries_list):
             category = entry.get('category', 'Others')
             entry_type = entry.get('type', 'Debit')
             entry_date = entry.get('date', datetime.now().strftime('%Y-%m-%d'))
-
-            payload = {
-                "item": item,
-                "amount": amount,
-                "category": category,
-                "type": entry_type,
-                "date": entry_date,
-                "sender": st.session_state.user.capitalize()
-            }
+            payload = {"item": item, "amount": amount, "category": category, "type": entry_type, "date": entry_date, "sender": st.session_state.user.capitalize()}
             requests.post(WEB_APP_URL, json=payload, timeout=10)
             results.append(f'{item} - ₹{amount}')
-
         summary_text = '\n'.join([f'• {r}' for r in results])
         send_whatsapp_auto(f'✅ *AI Multi-Entries Added*\n{summary_text}')
         return f'Success: Added {len(results)} items.'
-    except Exception as e:
-        return f'Error: {str(e)}'
+    except Exception as e: return f'Error: {str(e)}'
 
 tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "add_new_entry",
-            "description": "Add a single expense or income to Google Sheet.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "item": {"type": "string"},
-                    "amount": {"type": "number"},
-                    "category": {"type": "string", "description": "Food, Shop, Fish, Travel, Rent, Others"},
-                    "type": {"type": "string", "enum": ["Debit", "Credit"]},
-                    "date": {"type": "string", "description": "YYYY-MM-DD format. Calculate based on today."}
-                },
-                "required": ["item", "amount"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_multiple_entries",
-            "description": "Add multiple expenses or incomes extracted from a sentence to Google Sheet.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "entries_list": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "item": {"type": "string"},
-                                "amount": {"type": "number"},
-                                "category": {"type": "string", "description": "Food, Shop, Fish, Travel, Rent, Others"},
-                                "type": {"type": "string", "enum": ["Debit", "Credit"]},
-                                "date": {"type": "string", "description": "YYYY-MM-DD format."}
-                            },
-                            "required": ["item", "amount"]
-                        }
-                    }
-                },
-                "required": ["entries_list"]
-            }
-        }
-    }
+    {"type": "function", "function": {"name": "add_new_entry", "description": "Add a single expense or income", "parameters": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}, "category": {"type": "string", "description": "Food, Shop, Fish, Travel, Rent, Others"}, "type": {"type": "string", "enum": ["Debit", "Credit"]}, "date": {"type": "string", "description": "YYYY-MM-DD"}}, "required": ["item", "amount"]}}},
+    {"type": "function", "function": {"name": "add_multiple_entries", "description": "Add multiple expenses", "parameters": {"type": "object", "properties": {"entries_list": {"type": "array", "items": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}, "category": {"type": "string"}, "type": {"type": "string", "enum": ["Debit", "Credit"]}, "date": {"type": "string"}}, "required": ["item", "amount"]}}}, "required": ["entries_list"]}}}
 ]
 
 # --- 🔒 LOGIN SCREEN ---
@@ -370,7 +303,6 @@ else:
     if bal < st.session_state.low_limit:
         st.markdown(f'<div class="alert-banner">⚠️ ബാലൻസ് കുറവാണ്: {st.session_state.custom_alert_text} (₹{bal:,.2f})!</div>', unsafe_allow_html=True)
 
-    # 3D Balance Banner
     st.markdown(f'''
         <div class="balance-banner">
             <span style="font-size:22px; color:#E0B0FF; letter-spacing: 2px;">AVAILABLE BALANCE</span><br>
@@ -386,7 +318,6 @@ else:
     # --- DASHBOARD ---
     if page == "🏠 Dashboard" and not df.empty:
         st.title("Financial Overview")
-        
         st.markdown(f'''
             <div class="glass-card">
                 <h2 style="color:#00FF00; text-shadow: 0 0 10px rgba(0,255,0,0.5);">Credit: ₹{t_in:,.2f}</h2>
@@ -441,14 +372,7 @@ else:
             if st.form_submit_button("SAVE & NOTIFY"):
                 try:
                     am = float(am_str.strip().replace(',', ''))
-                    payload = {
-                        "item": it,
-                        "amount": am,
-                        "category": cat,
-                        "type": ty,
-                        "date": datetime.now().strftime("%Y-%m-%d"),
-                        "sender": st.session_state.user.capitalize()
-                    }
+                    payload = {"item": it, "amount": am, "category": cat, "type": ty, "date": datetime.now().strftime("%Y-%m-%d"), "sender": st.session_state.user.capitalize()}
                     requests.post(WEB_APP_URL, json=payload, timeout=10)
                     send_whatsapp_auto(f"✅ *Paichi Entry*\n📝 {it}\n💰 ₹{am}")
                     st.success("Saved! ✅"); st.rerun()
@@ -492,9 +416,9 @@ else:
             if page == "📊 Report":
                 st.title("Monthly Expense Analysis")
                 c1, c2, c3 = st.columns(3)
-                c1.markdown(f'<div class="purple-box"><h3 style="color:#00FF00;">Credit</h3><h1 style="color:#00FF00;">₹{m_crd:,.2f}</h1></div>', unsafe_allow_html=True)
-                c2.markdown(f'<div class="purple-box"><h3 style="color:#FF3131;">Expense</h3><h1 style="color:#FF3131;">₹{m_deb:,.2f}</h1></div>', unsafe_allow_html=True)
-                c3.markdown(f'<div class="purple-box"><h3 style="color:#FFD700;">Savings</h3><h1 style="color:#FFD700;">₹{m_crd - m_deb:,.2f}</h1></div>', unsafe_allow_html=True)
+                c1.markdown(f'<div class="glass-card"><h3 style="color:#00FF00;">Credit</h3><h1 style="color:#00FF00;">₹{m_crd:,.2f}</h1></div>', unsafe_allow_html=True)
+                c2.markdown(f'<div class="glass-card"><h3 style="color:#FF3131;">Expense</h3><h1 style="color:#FF3131;">₹{m_deb:,.2f}</h1></div>', unsafe_allow_html=True)
+                c3.markdown(f'<div class="glass-card"><h3 style="color:#FFD700;">Savings</h3><h1 style="color:#FFD700;">₹{m_crd - m_deb:,.2f}</h1></div>', unsafe_allow_html=True)
                 
                 m_df['Cat'] = m_df['Item'].apply(lambda x: x.split(':')[0] if ':' in str(x) else 'Others')
                 st.plotly_chart(px.pie(m_df[m_df['Debit'] > 0], values='Debit', names='Cat', hole=0.4), use_container_width=True)
@@ -511,76 +435,68 @@ else:
     # --- MY AI BUDDY ---
     elif page == "🧠 My AI Buddy":
         st.title("🧠 Your Personal AI Buddy")
-        st.write("എന്നോട് എന്തും ചോദിക്കാം. (ഉദാ: 'ഒരു കവിത എഴുതൂ', 'ഇന്ന് എന്ത് പാചകം ചെയ്യണം?')")
-        
         if "buddy_messages" not in st.session_state: st.session_state.buddy_messages = []
-        
         for msg in st.session_state.buddy_messages:
             with st.chat_message(msg["role"]): st.markdown(msg["content"])
-            
         user_input = st.chat_input("Ask me anything...", key="buddy_chat_box")
-        
         if user_input:
             st.session_state.buddy_messages.append({"role": "user", "content": user_input})
             with st.chat_message("user"): st.markdown(user_input)
-            
             with st.spinner("ആലോചിക്കുന്നു..."):
                 try:
                     client = Groq(api_key=GROQ_API_KEY)
-                    system_prompt = "You are a helpful personal AI assistant for a 51-year-old Malayali. Answer their questions in Malayalam in a friendly way. You can help with daily life, cooking, general knowledge, and motivation."
-                    
+                    system_prompt = "You are a helpful personal AI assistant for a 51-year-old Malayali. Answer their questions in Malayalam in a friendly way."
                     messages = [{"role": "system", "content": system_prompt}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.buddy_messages[-4:]]
-                    
-                    response = client.chat.completions.create(
-                        model="openai/gpt-oss-120b", 
-                        messages=messages,
-                        max_tokens=1024
-                    )
-                    
+                    response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=messages, max_tokens=1024)
                     ai_reply = response.choices[0].message.content
                     st.session_state.buddy_messages.append({"role": "assistant", "content": ai_reply})
                     with st.chat_message("assistant"): st.markdown(ai_reply)
-                except Exception as e:
-                    st.error(f"Error: {e}")
+                except Exception as e: st.error(f"Error: {e}")
 
-    # --- AI CHAT (AI Agent) ---
+    # --- AI CHAT ---
     elif page == "🤖 AI Chat":
         st.title("🤖 AI Agent & Assistant")
-        st.write("നിങ്ങൾക്ക് ടൈപ്പ് ചെയ്യാം, അല്ലെങ്കിൽ 'ബിരിയാണി 150' എന്ന് പറഞ്ഞാൽ അത് ഷീറ്റിൽ എൻട്രി ഇടും.")
-        
         if "messages" not in st.session_state: st.session_state.messages = []
-
         for message in st.session_state.messages:
             with st.chat_message(message["role"]): st.markdown(message["content"])
 
         v_raw = speech_to_text(language='ml', key='ai_voice_input')
         prompt = st.chat_input("Ask anything or add expense...", key="ai_chat_box")
-
         final_prompt = v_raw if v_raw else prompt
 
         if final_prompt:
             st.session_state.messages.append({"role": "user", "content": final_prompt})
             with st.chat_message("user"): st.markdown(final_prompt)
-
             with st.spinner("AI ആലോചിക്കുന്നു..."):
                 try:
                     client = Groq(api_key=GROQ_API_KEY)
-                    today_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                    utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-                    
-                    system_instruction = f"""
-നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. 
-സമയം: {utc_now}. ബാലൻസ്: {bal} Rs. 
-ചെലവ് ചേർക്കാൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക.
-
-പ്രധാന നിർദ്ദേശങ്ങൾ:
-1. യൂസർ 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ (ഉദാ: 'tea 10', 'chaya 20', 'taya 10'), അത് ഒരു Debit (ചെലവ്) ആണെന്ന് കണക്കാക്കി ഉടൻ എൻട്രി ചേർക്കുക. അനാവശ്യമായ ചോദ്യങ്ങൾ ചോദിക്കരുത്.
-2. തീയതി പ്രത്യേകം പറഞ്ഞിട്ടില്ലെങ്കിൽ ഇന്നത്തെ തീയതി തന്നെ ഉപയോഗിക്കുക. 'ഇന്നലെ', 'നാളെ' എന്ന് പറഞ്ഞാൽ മാത്രം തീയതി മാറ്റുക.
-3. കാറ്റഗറി പ്രത്യേകം പറഞ്ഞിട്ടില്ലെങ്കിൽ (tea, chaya, food എന്നിവയ്ക്ക് 'Food', മറ്റുള്ളവയ്ക്ക് 'Others') നൽകുക.
-4. യൂസർ വ്യക്തമായി '10 എണ്ണം' (10 times) എന്നോ 'പത്ത് എൻട്രി' എന്നോ പറഞ്ഞാൽ മാത്രം 'add_multiple_entries' ടൂൾ ഉപയോഗിക്കുക.
-"""
-                    
+                    system_instruction = f"നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. ബാലൻസ്: {bal} Rs. 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ Debit ആയി add_new_entry ടൂൾ ഉപയോഗിച്ച് എൻട്രി ചേർക്കുക."
                     messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-2:]]
+                    response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=messages_for_api, tools=tools, tool_choice="auto", max_tokens=1024)
+                    response_message = response.choices[0].message
+                    entry_saved = False
+                    ai_reply = ""
 
-                    response = client.chat.completions.create(
-                        model="openai/gpt
+                    if response_message.tool_calls:
+                        for tool_call in response_message.tool_calls:
+                            if tool_call.function.name == 'add_new_entry':
+                                args = json.loads(tool_call.function.arguments)
+                                result = add_new_entry(item=args.get("item"), amount=args.get("amount"), category=args.get("category", "Others"), type=args.get("type", "Debit"), entry_date=args.get("date"))
+                                if "Success" in result:
+                                    ai_reply = f"✅ {args.get('item')}-ന് {args.get('amount')} Rs ഞാൻ എൻട്രി ഇട്ടു!"
+                                    entry_saved = True
+                                else: ai_reply = f"❌ {result}"
+                            elif tool_call.function.name == 'add_multiple_entries':
+                                args = json.loads(tool_call.function.arguments)
+                                result = add_multiple_entries(entries_list=args.get('entries_list', []))
+                                if 'Success' in result:
+                                    ai_reply = '✅ പറഞ്ഞ എല്ലാ എൻട്രികളും വിജയകരമായി ഷീറ്റിൽ ചേർത്തു!'
+                                    entry_saved = True
+                                else: ai_reply = f'❌ {result}'
+                    elif response_message.content: ai_reply = response_message.content
+                    else: ai_reply = "ക്ഷമിക്കണം, എനിക്ക് മനസ്സിലായില്ല."
+
+                    st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                    with st.chat_message("assistant"): st.markdown(ai_reply)
+                    if entry_saved: st.rerun()
+                except Exception as e: st.error(f"AI Error: {str(e)}")
