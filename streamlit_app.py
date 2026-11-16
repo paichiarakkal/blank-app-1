@@ -14,7 +14,7 @@ from streamlit_calendar import calendar
 from twilio.rest import Client
 
 # --- STREAMLIT UI SETUP ---
-st.set_page_config(page_title="PAICHI EXPENSES", layout="wide")
+st.set_page_config(page_title="PAICHI EXPENSES v3.0", layout="wide")
 
 # --- CONFIG & SETTINGS ---
 CSV_URL = st.secrets.get("GOOGLE_SHEET_CSV", "")
@@ -69,6 +69,7 @@ st.markdown(f"""
 if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user = False, ""
 if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Shop kuri book"
 if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
+if "last_processed_msg" not in st.session_state: st.session_state.last_processed_msg = None
 if "pending_entry" not in st.session_state: st.session_state.pending_entry = None
 
 # --- HELPER FUNCTIONS ---
@@ -318,13 +319,13 @@ else:
                     client = Groq(api_key=GROQ_API_KEY)
                     system_prompt = "You are a helpful personal AI assistant for a 51-year-old Malayali. Answer their questions in Malayalam in a friendly way."
                     messages = [{"role": "system", "content": system_prompt}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.buddy_messages[-4:]]
-                    response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=messages, max_tokens=1024)
+                    response = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=messages, max_tokens=1024)
                     ai_reply = response.choices[0].message.content
                     st.session_state.buddy_messages.append({"role": "assistant", "content": ai_reply})
                     with st.chat_message("assistant"): st.markdown(ai_reply)
                 except Exception as e: st.error(f"Error: {e}")
 
-         # --- AI CHAT (AI Agent with Confirmation) ---
+    # --- AI CHAT (AI Agent with Confirmation & Loop Fixed) ---
     elif page == "🤖 AI Chat":
         st.title("🤖 AI Agent & Assistant")
         
@@ -335,9 +336,8 @@ else:
             st.warning(f"⏳ നിങ്ങൾ പറഞ്ഞത്: **{st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}**. ഇത് എൻട്രി ചെയ്യണോ?")
             col1, col2 = st.columns(2)
             if col1.button("✅ Yes, Save it", key="save_entry_btn"):
-                # ലൂപ്പ് തടയാൻ ഉടൻ തന്നെ pending_entry ക്ലിയർ ചെയ്യുന്നു
                 entry_data = st.session_state.pending_entry
-                st.session_state.pending_entry = None
+                st.session_state.pending_entry = None  # ലൂപ്പ് ഒഴിവാക്കാൻ ആദ്യം തന്നെ ക്ലിയർ ചെയ്യുന്നു
                 
                 result = add_new_entry(
                     item=entry_data['item'], 
@@ -363,14 +363,15 @@ else:
         for message in st.session_state.messages:
             with st.chat_message(message["role"]): st.markdown(message["content"])
 
+        v_raw = speech_to_text(language='ml', key='ai_voice_input')
         prompt = st.chat_input("Ask anything or add expense...", key="ai_chat_box")
+        final_prompt = v_raw if v_raw else prompt
 
-        if prompt:
-            # ലൂപ്പ് ഒഴിവാക്കാൻ ഒരേ പ്രോംപ്റ്റ് വീണ്ടും എടുക്കാതിരിക്കാൻ ചെക്ക് ചെയ്യുന്നു
-            if st.session_state.get("last_msg") != prompt:
-                st.session_state.last_msg = prompt
-                st.session_state.messages.append({"role": "user", "content": prompt})
-                with st.chat_message("user"): st.markdown(prompt)
+        if final_prompt:
+            if st.session_state.get("last_processed_prompt") != final_prompt:
+                st.session_state.last_processed_prompt = final_prompt
+                st.session_state.messages.append({"role": "user", "content": final_prompt})
+                with st.chat_message("user"): st.markdown(final_prompt)
 
                 with st.spinner("AI ആലോചിക്കുന്നു..."):
                     try:
@@ -380,7 +381,7 @@ else:
                         messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
 
                         response = client.chat.completions.create(
-                            model="llama-3.3-70b-versatile", # മോഡൽ നെയിം സ്റ്റേബിൾ ആയത് നൽകി
+                            model="llama-3.3-70b-versatile", 
                             messages=messages_for_api,
                             tools=tools,
                             tool_choice="auto",
@@ -400,13 +401,13 @@ else:
                                         "type": args.get("type", "Debit"),
                                         "date": args.get("date") or datetime.now().strftime("%Y-%m-%d")
                                     }
-                                    ai_reply = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ?"
-                                    st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                                    ai_msg = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ?"
+                                    st.session_state.messages.append({"role": "assistant", "content": ai_msg})
                                     st.rerun()
                                     
                         elif response_message.content:
-                            ai_reply = response_message.content
-                            st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                            ai_msg = response_message.content
+                            st.session_state.messages.append({"role": "assistant", "content": ai_msg})
                             st.rerun()
 
                     except Exception as e:
