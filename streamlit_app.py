@@ -238,6 +238,8 @@ Strict Instructions:
 1. Detect the user's language (Malayalam, English, Hindi, Arabic, etc.) and ALWAYS reply in the SAME language.
 2. ONLY discuss expenses, income, budgets, and financial records. NEVER talk about lotteries, games, or unrelated topics.
 3. If the user mentions an expense or income (e.g., 'tea 10', 'ബിരിയാണി 150'), do NOT call the tool immediately.
+4. Instead, ask for confirmation in the user's language (e.g., in Malayalam: "ഈ എൻട്രി ഗൂഗിൾ ഷീറ്റിലേക്ക് ചേർക്കട്ടെയോ? താഴെ കാണുന്ന YES അല്ലെങ്കിൽ NO ബട്ടൺ അമർത്തുക.").
+5. Only call `add_new_entry` or `add_multiple_entries` after the user replies with 'Yes'.
 """
     messages_for_api = [{"role": "system", "content": system_instruction}] + [
         {"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-6:]
@@ -333,12 +335,13 @@ else:
     elif page == "📅 Calendar":
         st.title("P&L Calendar View 📅")
         if not df.empty:
-            df_cal = df.dropna(subset=['Date'])
-            summary = df_cal.groupby(df_cal['Date'].dt.strftime('%Y-%m-%d')).agg({'Debit': 'sum', 'Credit': 'sum'}).reset_index()
+            df_cal = df.dropna(subset=['Date']).copy()
+            df_cal['DateStr'] = df_cal['Date'].dt.strftime('%Y-%m-%d')
+            summary = df_cal.groupby('DateStr').agg({'Debit': 'sum', 'Credit': 'sum'}).reset_index()
             events = []
             for _, row in summary.iterrows():
-                if row['Credit'] > 0: events.append({"title": f" +₹{row['Credit']:,.0f}", "start": row['Date'], "backgroundColor": "#198754"})
-                if row['Debit'] > 0: events.append({"title": f" -₹{row['Debit']:,.0f}", "start": row['Date'], "backgroundColor": "#dc3545"})
+                if row['Credit'] > 0: events.append({"title": f" +₹{row['Credit']:,.0f}", "start": row['DateStr'], "backgroundColor": "#198754"})
+                if row['Debit'] > 0: events.append({"title": f" -₹{row['Debit']:,.0f}", "start": row['DateStr'], "backgroundColor": "#dc3545"})
             
             cal_data = calendar(events=events, options={"headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth"}, "initialView": "dayGridMonth"}, key="pnl_calendar")
             
@@ -347,7 +350,7 @@ else:
                 dt_click = event_data.get("start", "").split("T")[0]
                 if dt_click:
                     st.markdown("---"); st.subheader(f"📋 Details for {pd.to_datetime(dt_click).strftime('%d %B %Y')}")
-                    day_df = df_cal[df_cal['Date'].dt.strftime('%Y-%m-%d'] == dt_click].copy()
+                    day_df = df_cal[df_cal['DateStr'] == dt_click].copy()
                     if not day_df.empty:
                         day_df['Date'] = day_df['Date'].dt.strftime('%d/%m/%Y')
                         st.dataframe(day_df[['Date', 'Item', 'Debit', 'Credit']], use_container_width=True)
