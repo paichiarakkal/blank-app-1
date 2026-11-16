@@ -325,106 +325,109 @@ else:
                 except Exception as e: st.error(f"Error: {e}")
 
     # --- AI CHAT (AI Agent with Confirmation) ---
-    elif page == "🤖 AI Chat":
-        st.title("🤖 AI Agent & Assistant")
-        
-        if "messages" not in st.session_state: st.session_state.messages = []
+elif page == "🤖 AI Chat":
+    st.title("🤖 AI Agent & Assistant")
+    
+    if "messages" not in st.session_state: st.session_state.messages = []
 
-        # കൺഫേം ചെയ്യാനുള്ള UI
-        if st.session_state.pending_entry:
-            st.warning(f"⏳ നിങ്ങൾ പറഞ്ഞത്: **{st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}**. ഇത് എൻട്രി ചെയ്യണോ?")
-            col1, col2 = st.columns(2)
+    # കൺഫേം ചെയ്യാനുള്ള UI
+    if st.session_state.pending_entry:
+        st.warning(f"⏳ നിങ്ങൾ പറഞ്ഞത്: **{st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}**. ഇത് എൻട്രി ചെയ്യണോ?")
+        col1, col2 = st.columns(2)
+        
+        if col1.button("✅ Yes, Save it"):
+            result = add_new_entry(
+                item=st.session_state.pending_entry['item'], 
+                amount=st.session_state.pending_entry['amount'], 
+                category=st.session_state.pending_entry['category'], 
+                type=st.session_state.pending_entry['type'],
+                entry_date=st.session_state.pending_entry['date']
+            )
+            if "Success" in result:
+                ai_msg = f"✅ ചേട്ടാ, {st.session_state.pending_entry['item']}-ന് ₹{st.session_state.pending_entry['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!"
+            else:
+                ai_msg = f"❌ എൻട്രി ഇടാൻ പറ്റിയില്ല: {result}"
             
-            if col1.button("✅ Yes, Save it"):
-                result = add_new_entry(
-                    item=st.session_state.pending_entry['item'], 
-                    amount=st.session_state.pending_entry['amount'], 
-                    category=st.session_state.pending_entry['category'], 
-                    type=st.session_state.pending_entry['type'],
-                    entry_date=st.session_state.pending_entry['date']
+            st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+            st.session_state.pending_entry = None
+            st.rerun()
+            
+        if col2.button("❌ No, Cancel"):
+            ai_msg = "ശരി ചേട്ടാ, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല. വേറെ എന്തെങ്കിലും വേണോ?"
+            st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+            st.session_state.pending_entry = None
+            st.rerun()
+
+    # ചാറ്റ് ഹിസ്റ്ററി കാണിക്കുക
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]): st.markdown(message["content"])
+
+    # യൂസർ ഇൻപുട്ട് എടുക്കുക
+    v_raw = speech_to_text(language='ml', key='ai_voice_input')
+    prompt = st.chat_input("Ask anything or add expense...", key="ai_chat_box")
+    
+    final_prompt = v_raw if v_raw else prompt
+
+    if final_prompt:
+        # യൂസർ മെസ്സേജ് സേവ് ചെയ്യുക
+        st.session_state.messages.append({"role": "user", "content": final_prompt})
+        with st.chat_message("user"): st.markdown(final_prompt)
+
+        with st.spinner("AI ആലോചിക്കുന്നു..."):
+            try:
+                client = Groq(api_key=GROQ_API_KEY)
+                today_date = datetime.now().strftime("%Y-%m-%d")
+                
+                system_instruction = f"""
+                നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. 
+                ഇന്നത്തെ തീയതി: {today_date}.
+                ബാലൻസ്: {bal} Rs. 
+                'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക.
+                തീയതി പ്രത്യേകം പറഞ്ഞിട്ടില്ലെങ്കിൽ, ഇന്നത്തെ തീയതി തന്നെ നൽകുക. ഒരിക്കലും null കൊടുക്കരുത്.
+                """
+                
+                messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-3:]]
+
+                response = client.chat.completions.create(
+                    model="openai/gpt-oss-120b", 
+                    messages=messages_for_api,
+                    tools=tools,
+                    tool_choice="auto",
+                    max_tokens=1024
                 )
-                if "Success" in result:
-                    ai_msg = f"✅ ചേട്ടാ, {st.session_state.pending_entry['item']}-ന് ₹{st.session_state.pending_entry['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!"
-                else:
-                    ai_msg = f"❌ എൻട്രി ഇടാൻ പറ്റിയില്ല: {result}"
+
+                response_message = response.choices[0].message
                 
-                st.session_state.messages.append({"role": "assistant", "content": ai_msg})
-                st.session_state.pending_entry = None
-                st.rerun()
-                
-            if col2.button("❌ No, Cancel"):
-                ai_msg = "ശരി ചേട്ടാ, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല. വേറെ എന്തെങ്കിലും വേണോ?"
-                st.session_state.messages.append({"role": "assistant", "content": ai_msg})
-                st.session_state.pending_entry = None
-                st.rerun()
+                if response_message.tool_calls:
+                    for tool_call in response_message.tool_calls:
+                        if tool_call.function.name == 'add_new_entry':
+                            args = json.loads(tool_call.function.arguments)
+                            
+                            # date null ആണെങ്കിൽ ഇന്നത്തെ തീയതി നൽകുന്നു
+                            entry_date = args.get("date")
+                            if not entry_date or entry_date == "null":
+                                entry_date = datetime.now().strftime("%Y-%m-%d")
 
-        # ചാറ്റ് ഹിസ്റ്ററി കാണിക്കുക
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]): st.markdown(message["content"])
+                            st.session_state.pending_entry = {
+                                "item": args.get("item"),
+                                "amount": args.get("amount"),
+                                "category": args.get("category", "Others"),
+                                "type": args.get("type", "Debit"),
+                                "date": entry_date
+                            }
+                            ai_reply = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ?"
+                            
+                            # ഇവിടെയാണ് ഡ്യൂപ്ലിക്കേറ്റ് തടയുന്നത്
+                            if not st.session_state.messages or st.session_state.messages[-1]["content"] != ai_reply:
+                                st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                            
+                            st.rerun()
+                            
+                elif response_message.content:
+                    ai_reply = response_message.content
+                    if not st.session_state.messages or st.session_state.messages[-1]["content"] != ai_reply:
+                        st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                    with st.chat_message("assistant"): st.markdown(ai_reply)
 
-        # യൂസർ ഇൻപുട്ട് എടുക്കുക
-        v_raw = speech_to_text(language='ml', key='ai_voice_input')
-        prompt = st.chat_input("Ask anything or add expense...", key="ai_chat_box")
-        
-        final_prompt = v_raw if v_raw else prompt
-
-        if final_prompt:
-            st.session_state.messages.append({"role": "user", "content": final_prompt})
-            with st.chat_message("user"): st.markdown(final_prompt)
-
-            with st.spinner("AI ആലോചിക്കുന്നു..."):
-                try:
-                    client = Groq(api_key=GROQ_API_KEY)
-                    today_date = datetime.now().strftime("%Y-%m-%d")
-                    
-                    system_instruction = f"""
-                    നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. 
-                    ഇന്നത്തെ തീയതി: {today_date}.
-                    ബാലൻസ്: {bal} Rs. 
-                    'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക.
-                    തീയതി പ്രത്യേകം പറഞ്ഞിട്ടില്ലെങ്കിൽ, ഇന്നത്തെ തീയതി തന്നെ നൽകുക. ഒരിക്കലും null കൊടുക്കരുത്.
-                    """
-                    
-                    messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-3:]]
-
-                    response = client.chat.completions.create(
-                        model="openai/gpt-oss-120b", 
-                        messages=messages_for_api,
-                        tools=tools,
-                        tool_choice="auto",
-                        max_tokens=1024
-                    )
-
-                    response_message = response.choices[0].message
-                    
-                    if response_message.tool_calls:
-                        for tool_call in response_message.tool_calls:
-                            if tool_call.function.name == 'add_new_entry':
-                                args = json.loads(tool_call.function.arguments)
-                                
-                                entry_date = args.get("date")
-                                if not entry_date or entry_date == "null":
-                                    entry_date = datetime.now().strftime("%Y-%m-%d")
-
-                                st.session_state.pending_entry = {
-                                    "item": args.get("item"),
-                                    "amount": args.get("amount"),
-                                    "category": args.get("category", "Others"),
-                                    "type": args.get("type", "Debit"),
-                                    "date": entry_date
-                                }
-                                ai_reply = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ?"
-                                
-                                if not st.session_state.messages or st.session_state.messages[-1]["content"] != ai_reply:
-                                    st.session_state.messages.append({"role": "assistant", "content": ai_reply})
-                                
-                                st.rerun()
-                                
-                    elif response_message.content:
-                        ai_reply = response_message.content
-                        if not st.session_state.messages or st.session_state.messages[-1]["content"] != ai_reply:
-                            st.session_state.messages.append({"role": "assistant", "content": ai_reply})
-                        with st.chat_message("assistant"): st.markdown(ai_reply)
-
-                except Exception as e:
-                    st.error(f"AI Error: {str(e)}")
+            except Exception as e:
+                st.error(f"AI Error: {str(e)}")
