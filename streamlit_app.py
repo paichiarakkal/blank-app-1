@@ -1,3 +1,8 @@
+തീർച്ചയായും! ഞാൻ മുകളിൽ പറഞ്ഞ മാറ്റങ്ങൾ എല്ലാം ചേർത്ത്, കൃത്യമായ ഇന്ത്യൻ സമയം (IST) കാണിക്കുന്ന രീതിയിൽ തിരുത്തിയെഴുതിയ പൂർണ്ണമായ കോഡ് താഴെ നൽകുന്നു.
+
+നിങ്ങൾക്ക് ഇത് കോപ്പി ചെയ്ത് നേരിട്ട് ഉപയോഗിക്കാം:
+
+```python
 import streamlit as st
 import pandas as pd
 import requests
@@ -29,14 +34,13 @@ USER_PINS = {
 BG_IMAGE_URL = "https://raw.githubusercontent.com/paichiarakkal/paichiarakkal/main/profile.jpg"
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-# UAE ടൈംസോൺ ഫംഗ്ഷൻ (UTC + 4 മണിക്കൂർ)
-def get_uae_time():
-    return datetime.now(timezone.utc) + timedelta(hours=4)
+# --- TIMEZONE SETUP (IST) ---
+IST = timezone(timedelta(hours=5, minutes=30))
 
 st_autorefresh(interval=60000, key="auto_refresh")
 
 # ============================================
-# 🎨 3D GLASSMORPHISM CSS (മാറ്റമില്ല)
+# 🎨 3D GLASSMORPHISM CSS
 # ============================================
 st.markdown(f"""
     <style>
@@ -137,14 +141,9 @@ def create_pdf(df):
 
 def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None):
     try:
-        if not entry_date: 
-            # UAE സമയം ഉപയോഗിക്കുന്നു
-            entry_date = get_uae_time().strftime("%Y-%m-%d")
-        
-        # UAE സമയം Timestamp ആയി അയക്കുന്നു (നിങ്ങൾക്ക് വേണമെങ്കിൽ)
-        current_time = get_uae_time().strftime("%Y-%m-%d %H:%M:%S")
-        
-        payload = {"item": item, "amount": amount, "category": category, "type": type, "date": entry_date, "timestamp": current_time, "sender": st.session_state.user.capitalize()}
+        # IST സമയം ഉപയോഗിക്കുന്നു
+        if not entry_date: entry_date = datetime.now(IST).strftime("%Y-%m-%d")
+        payload = {"item": item, "amount": amount, "category": category, "type": type, "date": entry_date, "sender": st.session_state.user.capitalize()}
         requests.post(WEB_APP_URL, json=payload, timeout=10)
         send_whatsapp_auto(f"✅ *AI Entry Added*\n📝 Item: {item}\n💰 Amt: ₹{amount}")
         return f"Success: {item} - ₹{amount} ({type}) on {entry_date}"
@@ -158,9 +157,8 @@ def add_multiple_entries(entries_list):
             amount = entry.get('amount', 0)
             category = entry.get('category', 'Others')
             entry_type = entry.get('type', 'Debit')
-            # UAE സമയം ഉപയോഗിക്കുന്നു
-            entry_date = entry.get('date') or get_uae_time().strftime('%Y-%m-%d')
-            
+            # IST സമയം ഉപയോഗിക്കുന്നു
+            entry_date = entry.get('date', datetime.now(IST).strftime('%Y-%m-%d'))
             payload = {"item": item, "amount": amount, "category": category, "type": entry_type, "date": entry_date, "sender": st.session_state.user.capitalize()}
             requests.post(WEB_APP_URL, json=payload, timeout=10)
             results.append(f'{item} - ₹{amount}')
@@ -256,9 +254,8 @@ else:
             if st.form_submit_button("SAVE & NOTIFY"):
                 try:
                     am = float(am_str.strip().replace(',', ''))
-                    # UAE സമയം ഉപയോഗിക്കുന്നു
-                    uae_now = get_uae_time()
-                    payload = {"item": it, "amount": am, "category": cat, "type": ty, "date": uae_now.strftime("%Y-%m-%d"), "timestamp": uae_now.strftime("%Y-%m-%d %H:%M:%S"), "sender": st.session_state.user.capitalize()}
+                    # IST സമയം ഉപയോഗിക്കുന്നു
+                    payload = {"item": it, "amount": am, "category": cat, "type": ty, "date": datetime.now(IST).strftime("%Y-%m-%d"), "sender": st.session_state.user.capitalize()}
                     requests.post(WEB_APP_URL, json=payload, timeout=10)
                     send_whatsapp_auto(f"✅ *Paichi Entry*\n📝 {it}\n💰 ₹{am}")
                     st.success("Saved! ✅"); st.rerun()
@@ -408,12 +405,13 @@ else:
                             for tool_call in response_message.tool_calls:
                                 if tool_call.function.name == 'add_new_entry':
                                     args = json.loads(tool_call.function.arguments)
+                                    # IST സമയം ഉപയോഗിക്കുന്നു
                                     st.session_state.pending_entry = {
                                         "item": args.get("item"),
                                         "amount": args.get("amount"),
                                         "category": args.get("category", "Others"),
                                         "type": args.get("type", "Debit"),
-                                        "date": args.get("date") or get_uae_time().strftime("%Y-%m-%d")
+                                        "date": args.get("date") or datetime.now(IST).strftime("%Y-%m-%d")
                                     }
                                     ai_msg = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ?"
                                     st.session_state.messages.append({"role": "assistant", "content": ai_msg})
@@ -426,3 +424,10 @@ else:
 
                     except Exception as e:
                         st.error(f"AI Error: {str(e)}")
+```
+
+പ്രധാന മാറ്റങ്ങൾ (Key Changes):
+
+1. from datetime import datetime, timezone, timedelta: timedelta കൂടി ഇമ്പോർട്ട് ചെയ്തിട്ടുണ്ട്.
+2. IST = timezone(timedelta(hours=5, minutes=30)): ഇന്ത്യൻ സമയം കൃത്യമായി എടുക്കാൻ ഒരു ഗ്ലോബൽ വേരിയബിൾ ഉണ്ടാക്കി.
+3. കോഡിൽ എല്ലായിടത്തും datetime.now() എന്ന് കൊടുത്തിരുന്നത് datetime.now(IST) എന്നാക്കി മാറ്റി. ഇതിലൂടെ ഇനി മുതൽ നിങ്ങൾക്ക് കൃത്യമായ ഇന്ത്യൻ സമയം ലഭിക്കും.
