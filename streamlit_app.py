@@ -136,8 +136,10 @@ def create_pdf(df):
 
 def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None):
     try:
-        # IST സമയം ഉപയോഗിക്കുന്നു
-        if not entry_date: entry_date = datetime.now(IST).strftime("%Y-%m-%d")
+        
+
+# ഇതാക്കുക (സമയം കൂടി ചേർക്കുക):
+if not entry_date: entry_date = datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
         payload = {"item": item, "amount": amount, "category": category, "type": type, "date": entry_date, "sender": st.session_state.user.capitalize()}
         requests.post(WEB_APP_URL, json=payload, timeout=10)
         send_whatsapp_auto(f"✅ *AI Entry Added*\n📝 Item: {item}\n💰 Amt: ₹{amount}")
