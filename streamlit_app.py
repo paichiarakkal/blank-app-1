@@ -135,9 +135,8 @@ def create_pdf(df):
     except: return None
 
 def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None):
-    try:
-        # ഇതാക്കുക (സമയം കൂടി ചേർക്കുക):
-if not entry_date: entry_date = datetime.now(GST).strftime('%Y-%m-%d %H:%M:%S')
+    
+       
 
 
 
