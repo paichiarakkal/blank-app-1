@@ -74,6 +74,7 @@ if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user 
 if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Shop kuri book"
 if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
 if "last_processed_prompt" not in st.session_state: st.session_state.last_processed_prompt = None
+if "pending_entry" not in st.session_state: st.session_state.pending_entry = None
 if "entry_saved_flag" not in st.session_state: st.session_state.entry_saved_flag = False
 
 # --- HELPER FUNCTIONS ---
@@ -167,8 +168,8 @@ def add_multiple_entries(entries_list):
     except Exception as e: return f'Error: {str(e)}'
 
 tools = [
-    {"type": "function", "function": {"name": "add_new_entry", "description": "Add a single expense or income directly without asking for confirmation.", "parameters": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}, "category": {"type": "string", "description": "Food, Shop, Fish, Travel, Rent, Others"}, "type": {"type": "string", "enum": ["Debit", "Credit"]}, "date": {"type": "string", "description": "YYYY-MM-DD HH:MM:SS"}}, "required": ["item", "amount"]}}},
-    {"type": "function", "function": {"name": "add_multiple_entries", "description": "Add multiple expenses directly without asking for confirmation.", "parameters": {"type": "object", "properties": {"entries_list": {"type": "array", "items": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}, "category": {"type": "string"}, "type": {"type": "string", "enum": ["Debit", "Credit"]}, "date": {"type": "string", "description": "YYYY-MM-DD HH:MM:SS"}}, "required": ["item", "amount"]}}}, "required": ["entries_list"]}}}
+    {"type": "function", "function": {"name": "add_new_entry", "description": "Add a single expense or income", "parameters": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}, "category": {"type": "string", "description": "Food, Shop, Fish, Travel, Rent, Others"}, "type": {"type": "string", "enum": ["Debit", "Credit"]}, "date": {"type": "string", "description": "YYYY-MM-DD HH:MM:SS"}}, "required": ["item", "amount"]}}},
+    {"type": "function", "function": {"name": "add_multiple_entries", "description": "Add multiple expenses", "parameters": {"type": "object", "properties": {"entries_list": {"type": "array", "items": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}, "category": {"type": "string"}, "type": {"type": "string", "enum": ["Debit", "Credit"]}, "date": {"type": "string", "description": "YYYY-MM-DD HH:MM:SS"}}, "required": ["item", "amount"]}}}, "required": ["entries_list"]}}}
 ]
 
 # --- 🔒 LOGIN SCREEN ---
@@ -342,12 +343,42 @@ else:
                     with st.chat_message("assistant"): st.markdown(ai_reply)
                 except Exception as e: st.error(f"Error: {e}")
 
-    # --- AI CHAT (Direct Entry without Confirmation) ---
+    # --- AI CHAT (AI Agent with Confirmation & Loop Fixed) ---
     elif page == "🤖 AI Chat":
         st.title("🤖 AI Agent & Assistant")
-        st.write("നിങ്ങൾക്ക് ടൈപ്പ് ചെയ്യാം, അല്ലെങ്കിൽ 'ബിരിയാണി 150' എന്ന് പറഞ്ഞാൽ അത് ഷീറ്റിൽ എൻട്രി ഇടും.")
         
         if "messages" not in st.session_state: st.session_state.messages = []
+
+        # കൺഫേം ചെയ്യാനുള്ള UI (ഒരു തവണ മാത്രം എൻട്രി വരാൻ)
+        if st.session_state.pending_entry:
+            st.warning(f"⏳ നിങ്ങൾ പറഞ്ഞത്: **{st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}**. ഇത് എൻട്രി ചെയ്യണോ?")
+            col1, col2 = st.columns(2)
+            if col1.button("✅ Yes, Save it", key="save_entry_btn"):
+                entry_data = st.session_state.pending_entry
+                st.session_state.pending_entry = None  
+                
+                result = add_new_entry(
+                    item=entry_data['item'], 
+                    amount=entry_data['amount'], 
+                    category=entry_data['category'], 
+                    type=entry_data['type'],
+                    entry_date=entry_data['date']
+                )
+                if "Success" in result:
+                    ai_msg = f"✅ ചേട്ടാ, {entry_data['item']}-ന് ₹{entry_data['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!"
+                else:
+                    ai_msg = f"❌ എൻട്രി ഇടാൻ പറ്റിയില്ല: {result}"
+                
+                st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                st.session_state.last_processed_prompt = None # ലൂപ്പ് ഒഴിവാക്കാൻ
+                st.rerun()
+                
+            if col2.button("❌ No, Cancel", key="cancel_entry_btn"):
+                st.session_state.pending_entry = None
+                ai_msg = "ശരി ചേട്ടാ, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല."
+                st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                st.session_state.last_processed_prompt = None # ലൂപ്പ് ഒഴിവാക്കാൻ
+                st.rerun()
 
         for message in st.session_state.messages:
             with st.chat_message(message["role"]): st.markdown(message["content"])
@@ -366,18 +397,7 @@ else:
                     try:
                         client = Groq(api_key=GROQ_API_KEY)
                         gst_now = datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
-                        
-                        # AI-ക്ക് നേരിട്ട് എൻട്രി ചെയ്യാനുള്ള നിർദ്ദേശം
-                        system_instruction = f"""
-നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. 
-സമയം: {gst_now} (GST). ബാലൻസ്: {bal} Rs. 
-ചെലവ് ചേർക്കാൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക.
-
-പ്രധാന നിർദ്ദേശങ്ങൾ:
-1. യൂസർ 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ (ഉദാ: 'tea 10', 'chaya 20', 'coffee 6'), അത് ഒരു Debit (ചെലവ്) ആണെന്ന് കണക്കാക്കി ഉടൻ എൻട്രി ചേർക്കുക. 'ശരിയാണോ?' എന്ന് ചോദിക്കരുത്, നേരിട്ട് എൻട്രി ചെയ്യുക.
-2. തീയതി പ്രത്യേകം പറഞ്ഞിട്ടില്ലെങ്കിൽ ഇന്നത്തെ തീയതി തന്നെ ഉപയോഗിക്കുക. 'ഇന്നലെ', 'നാളെ' എന്ന് പറഞ്ഞാൽ മാത്രം തീയതി മാറ്റുക.
-3. കാറ്റഗറി പ്രത്യേകം പറഞ്ഞിട്ടില്ലെങ്കിൽ (tea, chaya, food എന്നിവയ്ക്ക് 'Food', മറ്റുള്ളവയ്ക്ക് 'Others') നൽകുക.
-"""
+                        system_instruction = f"നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. സമയം: {gst_now} (GST). ബാലൻസ്: {bal} Rs. 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക."
                         
                         messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
 
@@ -390,44 +410,26 @@ else:
                         )
 
                         response_message = response.choices[0].message
-                        entry_saved = False
-                        ai_reply = ""
-
+                        
                         if response_message.tool_calls:
                             for tool_call in response_message.tool_calls:
-                                
-                                # 1. സിംഗിൾ എൻട്രി
                                 if tool_call.function.name == 'add_new_entry':
                                     args = json.loads(tool_call.function.arguments)
-                                    result = add_new_entry(
-                                        item=args.get("item"), amount=args.get("amount"), 
-                                        category=args.get("category", "Others"), type=args.get("type", "Debit"),
-                                        entry_date=args.get("date")
-                                    )
-                                    if "Success" in result:
-                                        ai_reply = f"✅ {args.get('item')}-ന് {args.get('amount')} Rs ഞാൻ എൻട്രി ഇട്ടു!"
-                                        entry_saved = True
-                                    else: ai_reply = f"❌ {result}"
-                                
-                                # 2. മൾട്ടി-എൻട്രി
-                                elif tool_call.function.name == 'add_multiple_entries':
-                                    args = json.loads(tool_call.function.arguments)
-                                    result = add_multiple_entries(entries_list=args.get('entries_list', []))
-                                    if 'Success' in result:
-                                        ai_reply = '✅ പറഞ്ഞ എല്ലാ എൻട്രികളും വിജയകരമായി ഗൂഗിൾ ഷീറ്റിൽ ചേർത്തു!'
-                                        entry_saved = True
-                                    else:
-                                        ai_reply = f'❌ {result}'
-                        
+                                    st.session_state.pending_entry = {
+                                        "item": args.get("item"),
+                                        "amount": args.get("amount"),
+                                        "category": args.get("category", "Others"),
+                                        "type": args.get("type", "Debit"),
+                                        "date": args.get("date") or datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
+                                    }
+                                    ai_msg = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ?"
+                                    st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                                    st.rerun()
+                                    
                         elif response_message.content:
-                            ai_reply = response_message.content
-                        else:
-                            ai_reply = "ക്ഷമിക്കണം, എനിക്ക് മനസ്സിലായില്ല."
-
-                        st.session_state.messages.append({"role": "assistant", "content": ai_reply})
-                        with st.chat_message("assistant"): st.markdown(ai_reply)
-                        
-                        if entry_saved: st.rerun()
+                            ai_msg = response_message.content
+                            st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                            st.rerun()
 
                     except Exception as e:
                         st.error(f"AI Error: {str(e)}")
