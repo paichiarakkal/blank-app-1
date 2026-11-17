@@ -137,7 +137,8 @@ def create_pdf(df):
 def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None):
     
        
-
+# ഇതാക്കുക (സമയം കൂടി ചേർക്കുക):
+if not entry_date: entry_date = datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
 
 
         payload = {"item": item, "amount": amount, "category": category, "type": type, "date": entry_date, "sender": st.session_state.user.capitalize()}
