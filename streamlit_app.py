@@ -1,421 +1,501 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 import random
 import plotly.express as px
-from streamlit_mic_recorder import speech_to_text
-from streamlit_autorefresh import st_autorefresh
 from fpdf import FPDF
-import re
 import json
+import base64
+import os
+import cv2
+import tempfile
+import hashlib
+import imaplib
+import email
+import time
+import urllib.request
+import xml.etree.ElementTree as ET
+from email.header import decode_header
 from groq import Groq
-from streamlit_calendar import calendar
 from twilio.rest import Client
 
+# --- CONFIG ---
+# ഇവിടെ ലിങ്കുകൾ ഹാർഡ് കോഡ് ചെയ്യേണ്ടതില്ല. ലോഗിൻ പേജിൽ നിന്ന് എടുക്കും.
+USER_PINS = {"admin": "1234", "shop1": "1111", "faisal": "786"}
+
+try:
+    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+except Exception:
+    GROQ_API_KEY = ""
+
+GMAIL_USER = st.secrets.get("GMAIL_USER", "")
+GMAIL_APP_PASSWORD = st.secrets.get("GMAIL_APP_PASSWORD", "")
+
+# --- TWILIO CONFIG ---
+try:
+    TWILIO_SID = st.secrets["TWILIO_SID"]
+    TWILIO_AUTH_TOKEN = st.secrets["TWILIO_AUTH_TOKEN"]
+    TWILIO_FROM = st.secrets.get("TWILIO_FROM", "whatsapp:+14155238886")
+except Exception:
+    TWILIO_SID = ""
+    TWILIO_AUTH_TOKEN = ""
+    TWILIO_FROM = "whatsapp:+14155238886"
+
+VISION_MODEL = "qwen/qwen3.8-27b"
+AGENT_MODEL  = "openai/gpt-oss-120b"
+WHISPER_MODEL = "whisper-large-v3"
+
+# --- SAFE FORM SUBMIT ---
+def submit_form(api_url, payload):
+    if not api_url or "YOUR_" in api_url or "http" not in api_url:
+        return False
+    try:
+        r = requests.post(api_url, data=payload, timeout=10)
+        return r.status_code == 200
+    except Exception as e:
+        return False
+
+# --- WHATSAPP SENDER ---
+def send_whatsapp_custom(to_number, msg):
+    if not TWILIO_SID or not TWILIO_AUTH_TOKEN: return False
+    try:
+        client = Client(TWILIO_SID, TWILIO_AUTH_TOKEN)
+        client.messages.create(body=msg, from_=TWILIO_FROM, to=to_number)
+        return True
+    except Exception as e:
+        return False
+
 # --- STREAMLIT UI SETUP ---
-st.set_page_config(page_title="PAICHI EXPENSES v3.0", layout="wide")
+st.set_page_config(page_title="PAICHI BUSINESS SaaS", layout="wide")
 
-# --- CONFIG & SETTINGS ---
-CSV_URL = st.secrets.get("GOOGLE_SHEET_CSV", "")
-WEB_APP_URL = st.secrets.get("APPS_SCRIPT_URL", "")
-WA_PHONE = "971551347989"
-
-USER_PINS = {
-    "faisal": st.secrets.get("PIN_FAISAL", ""),
-    "shabana": st.secrets.get("PIN_SHABANA", ""),
-    "admin": st.secrets.get("PIN_ADMIN", "")
-}
-BG_IMAGE_URL = "https://raw.githubusercontent.com/paichiarakkal/paichiarakkal/main/profile.jpg"
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
-
-# --- TIMEZONE SETUP (IST) ---
-IST = timezone(timedelta(hours=5, minutes=30))
-
-st_autorefresh(interval=60000, key="auto_refresh")
-
-# ============================================
-# 🎨 3D GLASSMORPHISM CSS
-# ============================================
-st.markdown(f"""
+st.markdown("""
     <style>
-    [data-testid="stAppViewContainer"] {{ 
-        background-image: linear-gradient(rgba(10, 10, 25, 0.85), rgba(10, 10, 25, 0.95)), url("{BG_IMAGE_URL}"); 
-        background-size: cover; background-attachment: fixed; background-position: center;
-    }}
-    [data-testid="stSidebar"] {{ 
-        background: rgba(20, 20, 35, 0.6) !important; backdrop-filter: blur(15px);
-        border-right: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 5px 0 15px rgba(0,0,0,0.5);
-    }}
-    .stButton>button {{ 
-        background: linear-gradient(135deg, #FFD700, #FFA500); color: #000; border-radius: 12px; 
-        font-weight: bold; width: 100%; border: none; padding: 10px;
-        box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4), inset 0 -3px 0 rgba(0,0,0,0.2);
-        transition: all 0.2s ease;
-    }}
-    .stButton>button:hover {{ transform: translateY(-2px); box-shadow: 0 6px 20px rgba(255, 215, 0, 0.6); }}
-    .glass-card {{ background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 25px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); margin-bottom: 25px; text-align: center; }}
-    .balance-banner {{ background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02)); backdrop-filter: blur(10px); padding: 30px; border-radius: 20px; border-left: 8px solid #FFD700; text-align: center; margin-bottom: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }}
-    .category-box {{ background: rgba(0, 0, 0, 0.5); padding: 20px; border-radius: 15px; text-align: center; border-bottom: 4px solid #FFD700; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }}
-    .category-box:hover {{ transform: scale(1.03); }}
-    .alert-banner {{ background: linear-gradient(90deg, #ff4d4d, #cc0000); color: white; padding: 15px; border-radius: 10px; text-align: center; font-weight: bold; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(255, 77, 77, 0.4); }}
-    .login-card {{ background: rgba(20, 20, 35, 0.8); backdrop-filter: blur(20px); padding: 40px; border-radius: 20px; max-width: 450px; margin: auto; margin-top: 80px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.6); }}
-    h1, h2, h3, p, label {{ color: #FFFFFF !important; font-weight: bold !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }}
-    [data-testid="stChatMessage"] {{ background: rgba(32, 44, 51, 0.9) !important; border-radius: 15px !important; padding: 15px !important; margin-bottom: 10px !important; border: 1px solid rgba(255,255,255,0.05) !important; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }}
-    [data-testid="stChatInput"] {{ background-color: rgba(42, 57, 66, 0.8) !important; border-radius: 25px !important; border: 1px solid rgba(255,255,255,0.1) !important; padding: 5px !important; }}
-    [data-testid="stChatInput"] textarea {{ color: white !important; }}
-    input, textarea, select {{ color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important; background-color: rgba(0, 0, 0, 0.5) !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; border-radius: 8px !important; }}
-    ::placeholder {{ color: #AAAAAA !important; }}
+    .stApp { background: #f4f6f9; color: #000000; }
+    [data-testid="stSidebar"] { background: #e0e0e0 !important; }
+    .stButton>button { background-color: #007BFF; color: #ffffff; border-radius: 10px; font-weight: bold; }
+    .stDownloadButton>button { background-color: #28a745; color: #ffffff; border-radius: 10px; font-weight: bold; }
+    .banner { background: #ffffff; padding: 25px; border-radius: 15px; border-left: 10px solid #007BFF; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    h1, h2, h3, p, label, span { color: #000000 !important; font-weight: bold !important; }
+    [data-testid="stChatMessage"] { background-color: #ffffff !important; border-radius: 10px; padding: 15px; border: 1px solid #ccc; color: #000; }
+    .banner .b-label { color: #007BFF !important; font-size: 20px; }
+    .banner .b-value { color: #000000 !important; font-size: 40px; }
+    .login-card { background: #ffffff; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); margin-top: 50px; }
     </style>
 """, unsafe_allow_html=True)
 
+# Session State Initialization
 if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user = False, ""
-if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Shop kuri book"
-if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
-if "last_processed_msg" not in st.session_state: st.session_state.last_processed_msg = None
-if "pending_entry" not in st.session_state: st.session_state.pending_entry = None
+if "messages" not in st.session_state: st.session_state.messages = []
+if "audio_counter" not in st.session_state: st.session_state.audio_counter = 0
+if "last_audio_hash" not in st.session_state: st.session_state.last_audio_hash = None
+if "wa_message" not in st.session_state: st.session_state.wa_message = ""
+# Dynamic Links
+if "user_csv_url" not in st.session_state: st.session_state.user_csv_url = ""
+if "user_form_api" not in st.session_state: st.session_state.user_form_api = ""
 
-# --- HELPER FUNCTIONS ---
-def send_whatsapp_auto(msg):
+def flash_success(msg): st.session_state["_flash"] = msg
+def show_flash():
+    msg = st.session_state.pop("_flash", None)
+    if msg: st.success(msg)
+
+# --- HELPER: Safe CSV load ---
+@st.cache_data(ttl=5)
+def load_finance_data(csv_url):
     try:
-        account_sid = st.secrets.get("TWILIO_ACCOUNT_SID", "")
-        auth_token = st.secrets.get("TWILIO_AUTH_TOKEN", "")
-        if account_sid and auth_token:
-            client = Client(account_sid, auth_token)
-            client.messages.create(from_='whatsapp:+14155238886', body=msg, to=f'whatsapp:+{WA_PHONE}')
-    except: pass 
-
-def parse_mixed_dates(date_series):
-    parsed = []
-    for val in date_series:
-        dt = pd.to_datetime(str(val).strip(), errors='coerce')
-        if not pd.isna(dt) and dt.year == 2026 and dt.month < 4: dt = datetime(2026, dt.day, dt.month)
-        if pd.isna(dt): dt = pd.to_datetime(str(val).strip(), dayfirst=True, errors='coerce')
-        parsed.append(dt)
-    return pd.Series(parsed)
-
-@st.cache_data(ttl=10)
-def load_data():
-    try:
-        if not CSV_URL: return pd.DataFrame()
-        df = pd.read_csv(f"{CSV_URL}&r={random.randint(1,999)}")
+        if not csv_url or "http" not in csv_url: raise ValueError("No URL")
+        df = pd.read_csv(f"{csv_url}&r={random.randint(1,999)}")
         df.columns = df.columns.str.strip()
-        df['Date'] = parse_mixed_dates(df['Date'])
         df['Debit'] = pd.to_numeric(df['Debit'], errors='coerce').fillna(0)
         df['Credit'] = pd.to_numeric(df['Credit'], errors='coerce').fillna(0)
         return df
-    except: return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame(columns=['Date', 'Shop Name', 'Item', 'Debit', 'Credit'])
 
-def create_pdf(df):
+@st.cache_data(ttl=5)
+def load_stock_data(csv_url):
     try:
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", 'B', 14)
-        pdf.cell(190, 10, txt="PAICHI FINANCE REPORT", ln=True, align='C')
-        pdf.ln(10)
-        pdf.set_font("Arial", 'B', 10)
-        widths = {"Date": 30, "Item": 85, "Debit": 35, "Credit": 35}
-        for col in widths: pdf.cell(widths[col], 10, txt=col, border=1, align='C')
+        if not csv_url or "http" not in csv_url: raise ValueError("No URL")
+        df = pd.read_csv(f"{csv_url}&r={random.randint(1,999)}")
+        df.columns = df.columns.str.strip()
+        df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce').fillna(0)
+        return df
+    except Exception:
+        return pd.DataFrame(columns=['Date', 'Item', 'Quantity', 'Type'])
+
+# --- PDF Helper ---
+def _find_unicode_font():
+    candidates = ["/usr/share/fonts/truetype/noto/NotoSansMalayalam-Regular.ttf", "C:/Windows/Fonts/arial.ttf"]
+    for p in candidates:
+        if os.path.exists(p): return p
+    return None
+
+def generate_pdf(df, title, columns):
+    pdf = FPDF()
+    pdf.add_page()
+    font_path = _find_unicode_font()
+    has_unicode = False
+    if font_path:
+        try:
+            pdf.add_font("UFont", "", font_path)
+            has_unicode = True
+        except: pass
+
+    pdf.set_font("UFont" if has_unicode else "Helvetica", size=14)
+    pdf.cell(190, 10, txt=title, ln=True, align='C')
+    pdf.ln(10)
+    pdf.set_font("UFont" if has_unicode else "Helvetica", size=10)
+    col_width = 190 / len(columns)
+    for col in columns: pdf.cell(col_width, 10, txt=str(col), border=1, align='C')
+    pdf.ln()
+    pdf.set_font("UFont" if has_unicode else "Helvetica", size=9)
+    
+    def _safe(v):
+        s = str(v)
+        return s if has_unicode else s.encode('ascii', 'ignore').decode('ascii')
+    for _, row in df.iterrows():
+        for col in columns: pdf.cell(col_width, 10, txt=_safe(row[col]), border=1)
         pdf.ln()
-        pdf.set_font("Arial", size=9)
-        for _, row in df.iterrows():
-            if pdf.get_y() > 260: pdf.add_page()
-            y_start = pdf.get_y()
-            pdf.cell(30, 10, txt=str(row['Date']), border=0)
-            x_after_date = pdf.get_x()
-            pdf.multi_cell(85, 5, txt=str(row['Item']).encode('ascii', 'ignore').decode('ascii'), border=0)
-            h = max(10, pdf.get_y() - y_start)
-            pdf.set_xy(x_after_date + 85, y_start)
-            pdf.cell(35, h, txt=str(row['Debit']), border=0, align='R')
-            pdf.cell(35, h, txt=str(row['Credit']), border=0, align='R')
-            pdf.set_xy(10, y_start)
-            for w in widths.values(): pdf.cell(w, h, txt="", border=1)
-            pdf.set_y(y_start + h)
-        return bytes(pdf.output())
-    except: return None
+    return bytes(pdf.output())
 
-def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None):
-    try:
-        # IST സമയം ഉപയോഗിക്കുന്നു
-        if not entry_date: entry_date = datetime.now(IST).strftime("%Y-%m-%d")
-        payload = {"item": item, "amount": amount, "category": category, "type": type, "date": entry_date, "sender": st.session_state.user.capitalize()}
-        requests.post(WEB_APP_URL, json=payload, timeout=10)
-        send_whatsapp_auto(f"✅ *AI Entry Added*\n📝 Item: {item}\n💰 Amt: ₹{amount}")
-        return f"Success: {item} - ₹{amount} ({type}) on {entry_date}"
-    except Exception as e: return f"Error: {str(e)}"
-
-def add_multiple_entries(entries_list):
-    results = []
-    try:
-        for entry in entries_list:
-            item = entry.get('item', 'Unknown')
-            amount = entry.get('amount', 0)
-            category = entry.get('category', 'Others')
-            entry_type = entry.get('type', 'Debit')
-            # IST സമയം ഉപയോഗിക്കുന്നു
-            entry_date = entry.get('date', datetime.now(IST).strftime('%Y-%m-%d'))
-            payload = {"item": item, "amount": amount, "category": category, "type": entry_type, "date": entry_date, "sender": st.session_state.user.capitalize()}
-            requests.post(WEB_APP_URL, json=payload, timeout=10)
-            results.append(f'{item} - ₹{amount}')
-        summary_text = '\n'.join([f'• {r}' for r in results])
-        send_whatsapp_auto(f'✅ *AI Multi-Entries Added*\n{summary_text}')
-        return f'Success: Added {len(results)} items.'
-    except Exception as e: return f'Error: {str(e)}'
-
+# ============================================
+# 🤖 AI AGENT TOOLS & FUNCTIONS
+# ============================================
 tools = [
-    {"type": "function", "function": {"name": "add_new_entry", "description": "Add a single expense or income", "parameters": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}, "category": {"type": "string", "description": "Food, Shop, Fish, Travel, Rent, Others"}, "type": {"type": "string", "enum": ["Debit", "Credit"]}, "date": {"type": "string", "description": "YYYY-MM-DD"}}, "required": ["item", "amount"]}}},
-    {"type": "function", "function": {"name": "add_multiple_entries", "description": "Add multiple expenses", "parameters": {"type": "object", "properties": {"entries_list": {"type": "array", "items": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}, "category": {"type": "string"}, "type": {"type": "string", "enum": ["Debit", "Credit"]}, "date": {"type": "string"}}, "required": ["item", "amount"]}}}, "required": ["entries_list"]}}}
+    {"type": "function", "function": {"name": "add_finance", "description": "Add finance", "parameters": {"type": "object", "properties": {"shop": {"type": "string", "enum": ["Shop 1", "Shop 2"]}, "item": {"type": "string"}, "amount": {"type": "number"}, "type": {"type": "string", "enum": ["Debit", "Credit"]}}, "required": ["shop", "item", "amount", "type"]}}},
+    {"type": "function", "function": {"name": "add_stock", "description": "Add stock", "parameters": {"type": "object", "properties": {"item_name": {"type": "string"}, "qty": {"type": "number"}, "stock_type": {"type": "string", "enum": ["Stock In", "Stock Out"]}}, "required": ["item_name", "qty", "stock_type"]}}},
+    {"type": "function", "function": {"name": "check_gmail", "description": "Read emails", "parameters": {"type": "object", "properties": {"count": {"type": "number"}}, "required": ["count"]}}}
 ]
 
-# --- 🔒 LOGIN SCREEN ---
+def execute_add_finance(shop, item, amount, t_type):
+    # യൂസറുടെ ഫോം API ഉപയോഗിക്കുന്നു
+    api = st.session_state.user_form_api
+    payload = {"entry.1044099436": datetime.now().strftime("%Y-%m-%d"), "entry.2013476337": f"[{shop}] {item}", "entry.1460982454": amount if t_type == "Debit" else 0, "entry.1221658767": 0 if t_type == "Debit" else amount}
+    if submit_form(api, payload): 
+        load_finance_data.clear()
+        return "Success"
+    return "Failed"
+
+def execute_add_stock(item_name, qty, stock_type):
+    # ഡെമോയ്ക്കായി ഇവിടെയും ഫിനാൻസ് ഫോം തന്നെ ഉപയോഗിക്കുന്നു (യഥാർത്ഥത്തിൽ വേറെ ഫോം വേണം)
+    api = st.session_state.user_form_api
+    payload = {"entry.1044099436": datetime.now().strftime("%Y-%m-%d"), "entry.2013476337": f"[Stock] {item_name}", "entry.1460982454": qty, "entry.1221658767": stock_type}
+    if submit_form(api, payload): 
+        load_stock_data.clear()
+        return "Success"
+    return "Failed"
+
+def check_gmail_emails(count=3):
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD: return "Gmail App Password ഇല്ല."
+    try:
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
+        mail.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+        mail.select("inbox")
+        status, messages = mail.search(None, "ALL")
+        mail_ids = messages[0].split()
+        if not mail_ids: return "മെയിലുകൾ ഇല്ല."
+        
+        latest_ids = mail_ids[-int(count):]
+        email_list = []
+        for i in reversed(latest_ids):
+            res, msg = mail.fetch(i, "(RFC822)")
+            for response in msg:
+                if isinstance(response, tuple):
+                    msg = email.message_from_bytes(response[1])
+                    subject, encoding = decode_header(msg["Subject"])[0]
+                    if isinstance(subject, bytes): subject = subject.decode(encoding if encoding else "utf-8")
+                    from_ = msg.get("From")
+                    email_list.append(f"From: {from_}\nSubject: {subject}\n")
+        mail.logout()
+        return "\n---\n".join(email_list)
+    except Exception as e: return f"Gmail Error: {str(e)}"
+
+def fetch_rss_news():
+    try:
+        url = "https://news.google.com/rss/search?q=gold+rate+petrol+price+kerala+uae+business&hl=en-US&gl=US&ceid=US:en"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        response = urllib.request.urlopen(req)
+        root = ET.fromstring(response.read())
+        items = root.findall('.//item')
+        return "\n".join([f"- {item.find('title').text}" for item in items[:5]])
+    except: return "Error fetching news"
+
+def extract_frames_from_video(video_bytes, num_frames=3):
+    try:
+        tfile = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+        tfile.write(video_bytes); tfile.close()
+        cap = cv2.VideoCapture(tfile.name)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frames = []
+        if total_frames > 0:
+            step = max(1, total_frames // num_frames)
+            for i in range(0, total_frames, step):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+                ret, frame = cap.read()
+                if ret:
+                    _, buffer = cv2.imencode('.jpg', frame)
+                    frames.append(buffer.tobytes())
+                if len(frames) >= num_frames: break
+        cap.release(); os.unlink(tfile.name)
+        return frames
+    except: return []
+
+def analyze_images_with_groq(images_bytes_list):
+    if not GROQ_API_KEY: return False, "Groq Key missing!"
+    try:
+        client = Groq(api_key=GROQ_API_KEY)
+        content_list = [{"type": "text", "text": "Analyze these CCTV frames. Count people, stock. Provide report."}]
+        for img in images_bytes_list:
+            content_list.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(img).decode('utf-8')}"}})
+        res = client.chat.completions.create(model=VISION_MODEL, messages=[{"role": "user", "content": content_list}], max_tokens=800).choices[0].message.content
+        prompt_ml = f"Translate into Malayalam. Do NOT translate brand names.\n\n{res}"
+        return True, client.chat.completions.create(model=AGENT_MODEL, messages=[{"role": "user", "content": prompt_ml}], max_tokens=800).choices[0].message.content
+    except Exception as e: return False, f"Vision Error: {str(e)}"
+
+def process_ai_agent(prompt_text):
+    client = Groq(api_key=GROQ_API_KEY)
+    system_instruction = f"നീ ഒരു ബിസിനസ്സ് AI ആണ്. മലയാളത്തിൽ മറുപടി നൽകുക."
+    messages = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]] + [{"role": "user", "content": prompt_text}]
+    
+    response = client.chat.completions.create(model=AGENT_MODEL, messages=messages, tools=tools, tool_choice="auto")
+    msg = response.choices[0].message
+    tool_used = False
+    
+    if msg.tool_calls:
+        tool_used = True
+        replies = []
+        for tc in msg.tool_calls:
+            try: args = json.loads(tc.function.arguments)
+            except: continue
+            
+            if tc.function.name == "add_finance":
+                res = execute_add_finance(args["shop"], args["item"], args["amount"], args["type"])
+                replies.append(f"✅ {args['shop']}-ൽ '{args['item']}' എൻട്രി ഇട്ടു!" if res == "Success" else "❌ എൻട്രി പറ്റിയില്ല.")
+            elif tc.function.name == "add_stock":
+                res = execute_add_stock(args["item_name"], args["qty"], args["stock_type"])
+                replies.append(f"✅ {args['item_name']} സ്റ്റോക്ക് അപ്ഡേറ്റ് ചെയ്തു!" if res == "Success" else "❌ സ്റ്റോക്ക് പറ്റിയില്ല.")
+            elif tc.function.name == "check_gmail":
+                raw = check_gmail_emails(args.get("count", 3))
+                replies.append(f"📧 **ഇമെയിൽ:**\n\n{raw}")
+        ai_reply = "\n\n".join(replies)
+    else:
+        ai_reply = msg.content or ""
+    return ai_reply, tool_used
+
+
+# --- 🔒 LOGIN (Dynamic URL Setup) ---
 if not st.session_state.auth:
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
         st.markdown('<div class="login-card">', unsafe_allow_html=True)
-        st.subheader("🔐 PAICHI EXPENSES LOGIN")
-        u = st.selectbox("👤 Select User", ["faisal", "shabana", "admin"]).lower()
-        pin = st.text_input("🔑 Enter 4-Digit PIN", type="password", max_chars=4)
-        if st.button("UNLOCK APP 🔓"):
+        st.subheader("🔐 PAICHI BUSINESS LOGIN")
+        
+        u = st.selectbox("👤 Select Role", ["admin", "shop1", "faisal"]).lower()
+        pin = st.text_input("🔑 Enter PIN", type="password", max_chars=4)
+        
+        st.markdown("---")
+        st.markdown("**⚙️ Setup Your Google Sheets (One-time)**")
+        csv_input = st.text_input("Google Sheet CSV Link (Published)", placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv")
+        form_input = st.text_input("Google Form API Link", placeholder="https://docs.google.com/forms/d/e/.../formResponse")
+        
+        if st.button("LOGIN & CONNECT"):
             if USER_PINS.get(u) == pin:
-                st.session_state.auth, st.session_state.user = True, u
-                st.rerun()
-            else: st.error("❌ Incorrect PIN!")
+                if not csv_input or not form_input:
+                    st.warning("⚠️ ദയവായി നിങ്ങളുടെ ഗൂഗിൾ ഷീറ്റ് ലിങ്കുകൾ നൽകുക.")
+                else:
+                    st.session_state.auth = True
+                    st.session_state.user = u
+                    st.session_state.user_csv_url = csv_input
+                    st.session_state.user_form_api = form_input
+                    st.rerun()
+            else: 
+                st.error("❌ Incorrect PIN!")
         st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-    df = load_data()
-    t_in, t_out = (df['Credit'].sum(), df['Debit'].sum()) if not df.empty else (0.0, 0.0)
-    bal = t_in - t_out
-    
-    if st.session_state.user != "shabana":
-        with st.sidebar.expander("⚙️ Settings"):
-            st.session_state.custom_alert_text = st.text_area("Alert Message", value=st.session_state.custom_alert_text)
-            st.session_state.low_limit = st.number_input("Low Balance Limit (₹)", value=st.session_state.low_limit)
-    
-    if bal < st.session_state.low_limit:
-        st.markdown(f'<div class="alert-banner">⚠️ ബാലൻസ് കുറവാണ്: {st.session_state.custom_alert_text} (₹{bal:,.2f})!</div>', unsafe_allow_html=True)
-
-    st.markdown(f'<div class="balance-banner"><span style="font-size:22px; color:#E0B0FF; letter-spacing: 2px;">AVAILABLE BALANCE</span><br><span style="font-size:50px; color:#FFD700; font-family: monospace;">₹{bal:,.2f}</span></div>', unsafe_allow_html=True)
-    
-    menu = ["💰 Add Entry", "📅 Calendar", "📊 Report", "🔍 History", "🤝 Debt Tracker", "🤖 AI Chat", "🧠 My AI Buddy"]
-    if st.session_state.user != "shabana": menu.insert(0, "🏠 Dashboard")
+    st.sidebar.title(f"👋 Welcome, {st.session_state.user.capitalize()}")
+    menu = ["📊 Dashboard", "💰 Add Finance", "📦 Stock Management", "🧾 Bill Scanner", "📧 Email Replier", "📢 WhatsApp Marketing", "📰 Daily Market News", "👨‍💼 Staff Salary", "🤖 AI Agent", "🎥 CCTV AI Vision"]
     page = st.sidebar.radio("Menu", menu)
-    if st.sidebar.button("Logout"): st.session_state.auth = False; st.rerun()
 
-    # --- DASHBOARD ---
-    if page == "🏠 Dashboard" and not df.empty:
-        st.title("Financial Overview")
-        st.markdown(f'<div class="glass-card"><h2 style="color:#00FF00;">Credit: ₹{t_in:,.2f}</h2><h2 style="color:#FF3131;">Debit: ₹{t_out:,.2f}</h2></div>', unsafe_allow_html=True)
-        
-        def extract_cat(x):
-            item_text = str(x).lower()
-            if any(w in item_text for w in ["food", "ഭക്ഷണം", "ചായ", "ഹോട്ടൽ", "ബിരിയാണി"]): return "Food"
-            elif any(w in item_text for w in ["shop", "കട", "സാധനങ്ങൾ", "സൂപ്പർമാർക്കറ്റ്"]): return "Shop"
-            elif any(w in item_text for w in ["fish", "മീൻ", "ഇറച്ചി", "ചിക്കൻ"]): return "Fish"
-            elif any(w in item_text for w in ["travel", "യാത്ര", "പെട്രോൾ", "വണ്ടി", "ടാക്സി"]): return "Travel"
-            elif any(w in item_text for w in ["rent", "വാടക", "റൂം"]): return "Rent"
-            return "Others"
-        df['Cat'] = df['Item'].apply(extract_cat)
-        cats = df.groupby('Cat')['Debit'].sum().to_dict()
-        cols = st.columns(3)
-        for idx, (c_name, c_amt) in enumerate(cats.items()):
-            if c_amt > 0:
-                with cols[idx % 3]: 
-                    st.markdown(f'<div class="category-box"><span style="color:#aaa;">Total {c_name}</span><br><span style="font-size:24px; color:#FFF;">₹{c_amt:,.2f}</span></div>', unsafe_allow_html=True)
+    if st.sidebar.button("Logout"):
+        st.session_state.auth = False
+        st.session_state.messages = []
+        st.session_state.user_csv_url = ""
+        st.session_state.user_form_api = ""
+        st.rerun()
 
-    # --- ADD ENTRY ---
-    elif page == "💰 Add Entry":
-        st.title("Smart Voice Entry 🎙️")
-        v_raw = speech_to_text(language='ml', key='voice_v9')
-        v_cat, v_amt, v_desc, v_type = "Others", "", "", "Debit"
-        
-        if v_raw:
-            raw = v_raw.lower().replace('.', '').replace(',', '')
-            nums = re.findall(r'\d+', raw)
-            v_amt = nums[0] if nums else ""
-            v_desc = re.sub(r'\d+', '', raw).strip()
-            if any(x in raw for x in ["food", "ഭക്ഷണം", "ചായ", "ഹോട്ടൽ", "ബിരിയാണി"]): v_cat = "Food"
-            elif any(x in raw for x in ["shop", "കട"]): v_cat = "Shop"
-            elif any(x in raw for x in ["fish", "മീൻ", "ചിക്കൻ"]): v_cat = "Fish"
-            elif any(x in raw for x in ["travel", "പെട്രോൾ", "വണ്ടി"]): v_cat = "Travel"
-            if any(x in raw for x in ["കിട്ടി", "വന്നു", "തന്നു"]): v_type = "Credit"
+    # യൂസറുടെ സ്വന്തം ലിങ്കുകൾ ഉപയോഗിച്ച് ഡാറ്റ ലോഡ് ചെയ്യുന്നു
+    df_fin = load_finance_data(st.session_state.user_csv_url)
+    df_stk = load_stock_data(st.session_state.user_csv_url) # ഡെമോയ്ക്ക് ഇതേ ലിങ്ക് ഉപയോഗിക്കുന്നു
+    bal = (df_fin['Credit'].sum() - df_fin['Debit'].sum()) if not df_fin.empty else 0
 
-        with st.form("entry_form", clear_on_submit=True):
-            it = st.text_input("Description", value=v_desc)
-            am_str = st.text_input("Amount", value=str(v_amt))
-            cat = st.selectbox("Category", ["Food", "Shop", "Fish", "Travel", "Rent", "Others"], index=["Food", "Shop", "Fish", "Travel", "Rent", "Others"].index(v_cat))
-            ty = st.radio("Type", ["Debit", "Credit"], horizontal=True, index=0 if v_type == "Debit" else 1)
-            
-            if st.form_submit_button("SAVE & NOTIFY"):
+    # --- 1. DASHBOARD ---
+    if page == "📊 Dashboard":
+        st.markdown(f'<div class="banner"><span class="b-label">Total Balance</span><br><span class="b-value">₹{bal:,.2f}</span></div>', unsafe_allow_html=True)
+        if not df_fin.empty:
+            shop_data = df_fin.groupby('Shop Name')[['Credit', 'Debit']].sum().reset_index()
+            st.plotly_chart(px.bar(shop_data, x='Shop Name', y=['Credit', 'Debit'], barmode='group', color_discrete_sequence=['#00FF00', '#FF3131']), use_container_width=True)
+            st.dataframe(df_fin.tail(10).iloc[::-1], use_container_width=True)
+        else:
+            st.info("ഇതുവരെ എൻട്രികൾ ഇല്ല. നിങ്ങളുടെ ലിങ്കുകൾ ശരിയാണോ എന്ന് പരിശോധിക്കുക.")
+
+    # --- 2. ADD FINANCE ---
+    elif page == "💰 Add Finance":
+        st.title("💰 Finance Entry")
+        show_flash()
+        with st.form("finance_form", clear_on_submit=True):
+            shop = st.selectbox("Select Shop", ["Shop 1", "Shop 2"])
+            it = st.text_input("Description"); am_str = st.text_input("Amount")
+            ty = st.radio("Type", ["Debit", "Credit"], horizontal=True)
+            if st.form_submit_button("SAVE ENTRY"):
                 try:
                     am = float(am_str.strip().replace(',', ''))
-                    # IST സമയം ഉപയോഗിക്കുന്നു
-                    payload = {"item": it, "amount": am, "category": cat, "type": ty, "date": datetime.now(IST).strftime("%Y-%m-%d"), "sender": st.session_state.user.capitalize()}
-                    requests.post(WEB_APP_URL, json=payload, timeout=10)
-                    send_whatsapp_auto(f"✅ *Paichi Entry*\n📝 {it}\n💰 ₹{am}")
-                    st.success("Saved! ✅"); st.rerun()
-                except Exception as e: 
-                    st.error(f"Error! Valid amount required. {e}")
+                    if execute_add_finance(shop, it, am, ty) == "Success":
+                        flash_success("Saved to YOUR sheet! ✅"); st.rerun()
+                except: st.error("❗ Invalid amount.")
 
-    # --- CALENDAR ---
-    elif page == "📅 Calendar" and not df.empty:
-        st.title("P&L Calendar View 📅")
-        df_cal = df.dropna(subset=['Date'])
-        summary = df_cal.groupby(df_cal['Date'].dt.strftime('%Y-%m-%d')).agg({'Debit': 'sum', 'Credit': 'sum'}).reset_index()
-        events = []
-        for _, row in summary.iterrows():
-            if row['Credit'] > 0: events.append({"title": f" +₹{row['Credit']:,.0f}", "start": row['Date'], "backgroundColor": "#198754"})
-            if row['Debit'] > 0: events.append({"title": f" -₹{row['Debit']:,.0f}", "start": row['Date'], "backgroundColor": "#dc3545"})
-        
-        cal_data = calendar(events=events, options={"headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth"}, "initialView": "dayGridMonth"}, key="pnl_calendar")
-        
-        if cal_data and cal_data.get("callback") == "eventClick":
-            event_data = cal_data.get("eventClick", {}).get("event", {})
-            dt_click = event_data.get("start", "").split("T")[0]
-            if dt_click:
-                st.markdown("---"); st.subheader(f"📋 Details for {pd.to_datetime(dt_click).strftime('%d %B %Y')}")
-                day_df = df_cal[df_cal['Date'].dt.strftime('%Y-%m-%d') == dt_click].copy()
-                if not day_df.empty:
-                    day_df['Date'] = day_df['Date'].dt.strftime('%d/%m/%Y')
-                    st.dataframe(day_df[['Date', 'Item', 'Debit', 'Credit']], use_container_width=True)
+    # --- 3. STOCK ---
+    elif page == "📦 Stock Management":
+        st.title("📦 Stock")
+        show_flash()
+        with st.form("stock_form", clear_on_submit=True):
+            item_name  = st.text_input("Item Name"); qty = st.number_input("Quantity", min_value=1.0)
+            stock_type = st.radio("Type", ["Stock In", "Stock Out"], horizontal=True)
+            if st.form_submit_button("SAVE STOCK"):
+                if execute_add_stock(item_name, qty, stock_type) == "Success":
+                    flash_success("Stock Updated! ✅"); st.rerun()
 
-    # --- REPORT & HISTORY ---
-    elif (page == "📊 Report" or page == "🔍 History") and not df.empty:
-        df_rep = df[(df['Date'].dt.year == 2026) & (df['Date'].dt.month >= 4)].copy()
-        df_rep['Month'] = df_rep['Date'].dt.strftime('%B %Y')
-        months = df_rep.dropna(subset=['Month']).sort_values(by='Date', ascending=False)['Month'].unique()
-        
-        if len(months) == 0: st.warning("No data found!")
-        else:
-            sel_m = st.selectbox("Select Month", months)
-            m_df = df_rep[df_rep['Month'] == sel_m].copy()
-            m_deb, m_crd = m_df['Debit'].sum(), m_df['Credit'].sum()
-            
-            if page == "📊 Report":
-                st.title("Monthly Expense Analysis")
-                c1, c2, c3 = st.columns(3)
-                c1.markdown(f'<div class="glass-card"><h3 style="color:#00FF00;">Credit</h3><h1 style="color:#00FF00;">₹{m_crd:,.2f}</h1></div>', unsafe_allow_html=True)
-                c2.markdown(f'<div class="glass-card"><h3 style="color:#FF3131;">Expense</h3><h1 style="color:#FF3131;">₹{m_deb:,.2f}</h1></div>', unsafe_allow_html=True)
-                c3.markdown(f'<div class="glass-card"><h3 style="color:#FFD700;">Savings</h3><h1 style="color:#FFD700;">₹{m_crd - m_deb:,.2f}</h1></div>', unsafe_allow_html=True)
-                
-                m_df['Cat'] = m_df['Item'].apply(lambda x: x.split(':')[0] if ':' in str(x) else 'Others')
-                st.plotly_chart(px.pie(m_df[m_df['Debit'] > 0], values='Debit', names='Cat', hole=0.4), use_container_width=True)
+    # --- 4. BILL SCANNER ---
+    elif page == "🧾 Bill Scanner":
+        st.title("🧾 Bill Scanner")
+        bill_file = st.file_uploader("Upload Bill Photo", type=["jpg", "jpeg", "png"])
+        if bill_file is not None:
+            st.image(bill_file, caption="Uploaded Bill", use_container_width=True)
+            if st.button("🔍 Extract & Add"):
+                with st.spinner("AI ബിൽ വായിക്കുന്നു..."):
+                    try:
+                        client = Groq(api_key=GROQ_API_KEY)
+                        b64_img = base64.b64encode(bill_file.getvalue()).decode('utf-8')
+                        prompt = "Extract item name, quantity, and total price. Return ONLY JSON array: [{\"item\": \"Sugar\", \"qty\": 5, \"price\": 250}]"
+                        response = client.chat.completions.create(model=VISION_MODEL, messages=[{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}}]}], max_tokens=1000)
+                        res_text = response.choices[0].message.content.strip()
+                        if res_text.startswith("```json"): res_text = res_text[7:-3]
+                        items_data = json.loads(res_text)
+                        for item in items_data:
+                            execute_add_finance("Shop 1", f"Purchase: {item['item']}", item['price'], "Debit")
+                        st.success("🎉 എൻട്രി ഇട്ടു!"); st.rerun()
+                    except Exception as e: st.error(f"Error: {e}")
 
-            clean_df = m_df.drop(columns=['Month'], errors='ignore')
-            clean_df['Date'] = clean_df['Date'].dt.strftime('%d/%m/%Y')
-            st.dataframe(clean_df.iloc[::-1], use_container_width=True)
-
-    # --- DEBT TRACKER ---
-    elif page == "🤝 Debt Tracker":
-        st.title("🤝 Debt Tracker")
-        st.info("വരും ദിവസങ്ങളിൽ ഇതിലേക്ക് കൂടുതൽ ഫീച്ചറുകൾ വരും!")
-
-    # --- MY AI BUDDY ---
-    elif page == "🧠 My AI Buddy":
-        st.title("🧠 Your Personal AI Buddy")
-        if "buddy_messages" not in st.session_state: st.session_state.buddy_messages = []
-        for msg in st.session_state.buddy_messages:
-            with st.chat_message(msg["role"]): st.markdown(msg["content"])
-        user_input = st.chat_input("Ask me anything...", key="buddy_chat_box")
-        if user_input:
-            st.session_state.buddy_messages.append({"role": "user", "content": user_input})
-            with st.chat_message("user"): st.markdown(user_input)
-            with st.spinner("ആലോചിക്കുന്നു..."):
-                try:
-                    client = Groq(api_key=GROQ_API_KEY)
-                    system_prompt = "You are a helpful personal AI assistant for a 51-year-old Malayali. Answer their questions in Malayalam in a friendly way."
-                    messages = [{"role": "system", "content": system_prompt}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.buddy_messages[-4:]]
-                    response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=messages, max_tokens=1024)
-                    ai_reply = response.choices[0].message.content
-                    st.session_state.buddy_messages.append({"role": "assistant", "content": ai_reply})
-                    with st.chat_message("assistant"): st.markdown(ai_reply)
-                except Exception as e: st.error(f"Error: {e}")
-
-    # --- AI CHAT (AI Agent with Confirmation & Loop Fixed) ---
-    elif page == "🤖 AI Chat":
-        st.title("🤖 AI Agent & Assistant")
-        
-        if "messages" not in st.session_state: st.session_state.messages = []
-
-        # കൺഫേം ചെയ്യാനുള്ള UI
-        if st.session_state.pending_entry:
-            st.warning(f"⏳ നിങ്ങൾ പറഞ്ഞത്: **{st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}**. ഇത് എൻട്രി ചെയ്യണോ?")
-            col1, col2 = st.columns(2)
-            if col1.button("✅ Yes, Save it", key="save_entry_btn"):
-                entry_data = st.session_state.pending_entry
-                st.session_state.pending_entry = None  
-                
-                result = add_new_entry(
-                    item=entry_data['item'], 
-                    amount=entry_data['amount'], 
-                    category=entry_data['category'], 
-                    type=entry_data['type'],
-                    entry_date=entry_data['date']
-                )
-                if "Success" in result:
-                    ai_msg = f"✅ ചേട്ടാ, {entry_data['item']}-ന് ₹{entry_data['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!"
+    # --- 5. EMAIL ---
+    elif page == "📧 Email Replier":
+        st.title("📧 Smart Email Replier")
+        if st.button("🔄 പുതിയ മെയിലുകൾ ചെക്ക് ചെയ്യുക"):
+            with st.spinner("AI മെയിലുകൾ വായിക്കുന്നു..."):
+                raw_emails = check_gmail_emails(1)
+                if "Error" in raw_emails or "ഇല്ല" in raw_emails: st.warning(raw_emails)
                 else:
-                    ai_msg = f"❌ എൻട്രി ഇടാൻ പറ്റിയില്ല: {result}"
-                
-                st.session_state.messages.append({"role": "assistant", "content": ai_msg})
-                st.rerun()
-                
-            if col2.button("❌ No, Cancel", key="cancel_entry_btn"):
-                st.session_state.pending_entry = None
-                ai_msg = "ശരി ചേട്ടാ, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല."
-                st.session_state.messages.append({"role": "assistant", "content": ai_msg})
-                st.rerun()
+                    st.info("📥 **ഏറ്റവും പുതിയ മെയിൽ:**"); st.text_area("Email", raw_emails, height=200, disabled=True)
+                    client = Groq(api_key=GROQ_API_KEY)
+                    prompt = f"ഈ മെയിൽ പ്രധാനപ്പെട്ടതാണോ എന്ന് പറയുക. പ്രധാനമാണെങ്കിൽ ഒരു പ്രൊഫഷണൽ റിപ്ലൈ തയ്യാറാക്കുക.\n\n{raw_emails}"
+                    with st.spinner("AI റിപ്ലൈ തയ്യാറാക്കുന്നു..."):
+                        reply_res = client.chat.completions.create(model=AGENT_MODEL, messages=[{"role": "user", "content": prompt}], max_tokens=800).choices[0].message.content
+                        st.success("✅ AI വിശകലനവും റിപ്ലൈയും:"); st.markdown(reply_res)
 
+    # --- 6. WHATSAPP ---
+    elif page == "📢 WhatsApp Marketing":
+        st.title("📢 WhatsApp Marketing")
+        ai_prompt = st.text_input("AI-യോട് മെസ്സേജ് എഴുതാൻ പറയാം")
+        if st.button("🤖 AI മെസ്സേജ് ഉണ്ടാക്കുക") and ai_prompt:
+            try:
+                client = Groq(api_key=GROQ_API_KEY)
+                res = client.chat.completions.create(model=AGENT_MODEL, messages=[{"role": "user", "content": f"ഇതിനെ അടിസ്ഥാനമാക്കി വാട്ട്സ്ആപ്പ് മെസ്സേജ് എഴുതുക: '{ai_prompt}'"}]).choices[0].message.content
+                st.session_state['wa_message'] = res
+            except: st.error("AI എറർ!")
+        
+        msg_to_send = st.text_area("മെസ്സേജ്", value=st.session_state.get('wa_message', ''), height=150)
+        numbers_input = st.text_area("ഫോൺ നമ്പറുകൾ (കോമ ഉപയോഗിച്ച്)")
+        numbers_list = [num.strip() for num in numbers_input.split(",") if num.strip()]
+
+        if st.button("🚀 മെസ്സേജ് അയക്കുക"):
+            if not TWILIO_SID: st.error("Twilio Config ലഭ്യമല്ല.")
+            else:
+                success_count = 0
+                for num in numbers_list:
+                    formatted_num = f"whatsapp:{num}" if not num.startswith("whatsapp:") else num
+                    if send_whatsapp_custom(formatted_num, msg_to_send): success_count += 1
+                    time.sleep(1) 
+                st.success(f"✅ {success_count} മെസ്സേജുകൾ അയച്ചു!")
+
+    # --- 7. NEWS ---
+    elif page == "📰 Daily Market News":
+        st.title("📰 Market News")
+        if st.button("🔄 വാർത്തകൾ കാണുക"):
+            with st.spinner("വാർത്തകൾ ശേഖരിക്കുന്നു..."):
+                raw_news = fetch_rss_news()
+                client = Groq(api_key=GROQ_API_KEY)
+                prompt = f"ഈ വാർത്തകൾ മലയാളത്തിൽ ചുരുക്കി എഴുതുക:\n{raw_news}"
+                summary = client.chat.completions.create(model=AGENT_MODEL, messages=[{"role": "user", "content": prompt}], max_tokens=800).choices[0].message.content
+                st.success("📊 **AI ന്യൂസ്:**"); st.markdown(summary)
+
+    # --- 8. SALARY ---
+    elif page == "👨‍💼 Staff Salary":
+        st.title("👨‍💼 Staff Salary")
+        with st.form("salary_form", clear_on_submit=True):
+            shop = st.selectbox("Shop", ["Shop 1", "Shop 2"])
+            emp_name = st.text_input("Employee"); sal_amt = st.number_input("Amount", min_value=1.0)
+            if st.form_submit_button("PAY"):
+                if execute_add_finance(shop, f"Salary: {emp_name}", sal_amt, "Debit") == "Success":
+                    st.success("✅ ശമ്പളം നൽകി!"); st.rerun()
+
+    # --- 9. AI AGENT ---
+    elif page == "🤖 AI Agent":
+        st.title("🤖 PAICHI AI")
+        if st.button("🗑️ Clear Chat"): st.session_state.messages = []; st.session_state['audio_counter'] += 1; st.rerun()
         for message in st.session_state.messages:
             with st.chat_message(message["role"]): st.markdown(message["content"])
 
-        v_raw = speech_to_text(language='ml', key='ai_voice_input')
-        prompt = st.chat_input("Ask anything or add expense...", key="ai_chat_box")
-        final_prompt = v_raw if v_raw else prompt
+        audio_value = st.audio_input("🎤 റെക്കോർഡ് ചെയ്യാൻ അമർത്തുക", key=f"audio_{st.session_state['audio_counter']}")
+        text_prompt = st.chat_input("ഇവിടെ ടൈപ്പ് ചെയ്യാം...")
+        prompt = None
 
-        if final_prompt:
-            if st.session_state.get("last_processed_prompt") != final_prompt:
-                st.session_state.last_processed_prompt = final_prompt
-                st.session_state.messages.append({"role": "user", "content": final_prompt})
-                with st.chat_message("user"): st.markdown(final_prompt)
-
-                with st.spinner("AI ആലോചിക്കുന്നു..."):
+        if audio_value:
+            if st.session_state.get("last_audio_hash") != hashlib.md5(audio_value.getvalue()).hexdigest():
+                st.session_state["last_audio_hash"] = hashlib.md5(audio_value.getvalue()).hexdigest()
+                with st.spinner("ശബ്ദം കേൾക്കുന്നു..."):
                     try:
                         client = Groq(api_key=GROQ_API_KEY)
-                        system_instruction = f"നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. ബാലൻസ്: {bal} Rs. 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക."
-                        
-                        messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
+                        prompt = client.audio.transcriptions.create(file=(audio_value.name, audio_value.getvalue()), model=WHISPER_MODEL, response_format="text").strip()
+                    except Exception as e: st.error(f"Audio Error: {str(e)}")
 
-                        response = client.chat.completions.create(
-                            model="openai/gpt-oss-120b", 
-                            messages=messages_for_api,
-                            tools=tools,
-                            tool_choice="auto",
-                            max_tokens=1024
-                        )
+        if text_prompt: prompt = text_prompt
 
-                        response_message = response.choices[0].message
-                        
-                        if response_message.tool_calls:
-                            for tool_call in response_message.tool_calls:
-                                if tool_call.function.name == 'add_new_entry':
-                                    args = json.loads(tool_call.function.arguments)
-                                    # IST സമയം ഉപയോഗിക്കുന്നു
-                                    st.session_state.pending_entry = {
-                                        "item": args.get("item"),
-                                        "amount": args.get("amount"),
-                                        "category": args.get("category", "Others"),
-                                        "type": args.get("type", "Debit"),
-                                        "date": args.get("date") or datetime.now(IST).strftime("%Y-%m-%d")
-                                    }
-                                    ai_msg = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ?"
-                                    st.session_state.messages.append({"role": "assistant", "content": ai_msg})
-                                    st.rerun()
-                                    
-                        elif response_message.content:
-                            ai_msg = response_message.content
-                            st.session_state.messages.append({"role": "assistant", "content": ai_msg})
-                            st.rerun()
+        if prompt:
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"): st.markdown(prompt)
+            with st.spinner("AI ടൈപ്പ് ചെയ്യുന്നു..."):
+                try:
+                    ai_reply, tool_used = process_ai_agent(prompt)
+                    st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                    with st.chat_message("assistant"): st.markdown(ai_reply)
+                    st.session_state['audio_counter'] += 1; st.rerun()
+                except Exception as e: st.error(f"AI Error: {str(e)}")
 
-                    except Exception as e:
-                        st.error(f"AI Error: {str(e)}")
+    # --- 10. CCTV ---
+    elif page == "🎥 CCTV AI Vision":
+        st.title("🎥 CCTV Vision")
+        uploaded_file = st.file_uploader("Upload CCTV Photo/Video", type=["jpg", "jpeg", "png", "mp4"])
+        if uploaded_file is not None:
+            if "image" in uploaded_file.type:
+                st.image(uploaded_file, use_container_width=True)
+                images_to_analyze = [uploaded_file.getvalue()]
+            else:
+                st.video(uploaded_file)
+                with st.spinner("ഫ്രെയിമുകൾ എടുക്കുന്നു..."):
+                    images_to_analyze = extract_frames_from_video(uploaded_file.getvalue())
+                    if not images_to_analyze: st.error("ഫ്രെയിമുകൾ എടുക്കാൻ സാധിച്ചില്ല."); st.stop()
+
+            if st.button("🔍 Analyze"):
+                with st.spinner("AI വിശകലനം ചെയ്യുന്നു..."):
+                    ok, analysis_result = analyze_images_with_groq(images_to_analyze)
+                    if ok: st.success(analysis_result)
+                    else: st.error(analysis_result)
