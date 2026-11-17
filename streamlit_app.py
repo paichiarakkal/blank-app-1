@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import random
 import plotly.express as px
 from streamlit_mic_recorder import speech_to_text
@@ -28,6 +28,9 @@ USER_PINS = {
 }
 BG_IMAGE_URL = "https://raw.githubusercontent.com/paichiarakkal/paichiarakkal/main/profile.jpg"
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
+
+# --- TIMEZONE SETUP (IST) ---
+IST = timezone(timedelta(hours=5, minutes=30))
 
 st_autorefresh(interval=60000, key="auto_refresh")
 
@@ -133,7 +136,8 @@ def create_pdf(df):
 
 def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None):
     try:
-        if not entry_date: entry_date = datetime.now().strftime("%Y-%m-%d")
+        # IST സമയം ഉപയോഗിക്കുന്നു
+        if not entry_date: entry_date = datetime.now(IST).strftime("%Y-%m-%d")
         payload = {"item": item, "amount": amount, "category": category, "type": type, "date": entry_date, "sender": st.session_state.user.capitalize()}
         requests.post(WEB_APP_URL, json=payload, timeout=10)
         send_whatsapp_auto(f"✅ *AI Entry Added*\n📝 Item: {item}\n💰 Amt: ₹{amount}")
@@ -148,7 +152,8 @@ def add_multiple_entries(entries_list):
             amount = entry.get('amount', 0)
             category = entry.get('category', 'Others')
             entry_type = entry.get('type', 'Debit')
-            entry_date = entry.get('date', datetime.now().strftime('%Y-%m-%d'))
+            # IST സമയം ഉപയോഗിക്കുന്നു
+            entry_date = entry.get('date', datetime.now(IST).strftime('%Y-%m-%d'))
             payload = {"item": item, "amount": amount, "category": category, "type": entry_type, "date": entry_date, "sender": st.session_state.user.capitalize()}
             requests.post(WEB_APP_URL, json=payload, timeout=10)
             results.append(f'{item} - ₹{amount}')
@@ -244,7 +249,8 @@ else:
             if st.form_submit_button("SAVE & NOTIFY"):
                 try:
                     am = float(am_str.strip().replace(',', ''))
-                    payload = {"item": it, "amount": am, "category": cat, "type": ty, "date": datetime.now().strftime("%Y-%m-%d"), "sender": st.session_state.user.capitalize()}
+                    # IST സമയം ഉപയോഗിക്കുന്നു
+                    payload = {"item": it, "amount": am, "category": cat, "type": ty, "date": datetime.now(IST).strftime("%Y-%m-%d"), "sender": st.session_state.user.capitalize()}
                     requests.post(WEB_APP_URL, json=payload, timeout=10)
                     send_whatsapp_auto(f"✅ *Paichi Entry*\n📝 {it}\n💰 ₹{am}")
                     st.success("Saved! ✅"); st.rerun()
@@ -394,12 +400,13 @@ else:
                             for tool_call in response_message.tool_calls:
                                 if tool_call.function.name == 'add_new_entry':
                                     args = json.loads(tool_call.function.arguments)
+                                    # IST സമയം ഉപയോഗിക്കുന്നു
                                     st.session_state.pending_entry = {
                                         "item": args.get("item"),
                                         "amount": args.get("amount"),
                                         "category": args.get("category", "Others"),
                                         "type": args.get("type", "Debit"),
-                                        "date": args.get("date") or datetime.now().strftime("%Y-%m-%d")
+                                        "date": args.get("date") or datetime.now(IST).strftime("%Y-%m-%d")
                                     }
                                     ai_msg = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ?"
                                     st.session_state.messages.append({"role": "assistant", "content": ai_msg})
