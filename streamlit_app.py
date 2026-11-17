@@ -19,6 +19,7 @@ st.set_page_config(page_title="PAICHI EXPENSES v3.0", layout="wide")
 
 # --- CONFIG & SETTINGS ---
 CSV_URL = st.secrets.get("GOOGLE_SHEET_CSV", "")
+DEBT_CSV_URL = st.secrets.get("GOOGLE_SHEET_DEBT_CSV", "")
 WEB_APP_URL = st.secrets.get("APPS_SCRIPT_URL", "")
 WA_PHONE = "971551347989"
 
@@ -58,7 +59,6 @@ st.markdown(f"""
     .glass-card {{ background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 25px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); margin-bottom: 25px; text-align: center; }}
     .balance-banner {{ background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02)); backdrop-filter: blur(10px); padding: 30px; border-radius: 20px; border-left: 8px solid #FFD700; text-align: center; margin-bottom: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }}
     .category-box {{ background: rgba(0, 0, 0, 0.5); padding: 20px; border-radius: 15px; text-align: center; border-bottom: 4px solid #FFD700; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }}
-    .category-box:hover {{ transform: scale(1.03); }}
     .alert-banner {{ background: linear-gradient(90deg, #ff4d4d, #cc0000); color: white; padding: 15px; border-radius: 10px; text-align: center; font-weight: bold; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(255, 77, 77, 0.4); }}
     .login-card {{ background: rgba(20, 20, 35, 0.8); backdrop-filter: blur(20px); padding: 40px; border-radius: 20px; max-width: 450px; margin: auto; margin-top: 80px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.6); }}
     h1, h2, h3, p, label {{ color: #FFFFFF !important; font-weight: bold !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }}
@@ -85,7 +85,8 @@ def send_whatsapp_auto(msg):
         if account_sid and auth_token:
             client = Client(account_sid, auth_token)
             client.messages.create(from_='whatsapp:+14155238886', body=msg, to=f'whatsapp:+{WA_PHONE}')
-    except: pass 
+    except Exception: 
+        pass 
 
 def parse_mixed_dates(date_series):
     parsed = []
@@ -108,7 +109,19 @@ def load_data():
         df['Debit'] = pd.to_numeric(df['Debit'], errors='coerce').fillna(0)
         df['Credit'] = pd.to_numeric(df['Credit'], errors='coerce').fillna(0)
         return df
-    except: return pd.DataFrame()
+    except Exception: 
+        return pd.DataFrame()
+
+@st.cache_data(ttl=10)
+def load_debts_data():
+    try:
+        if not DEBT_CSV_URL: return pd.DataFrame(columns=['ID', 'Name', 'Type', 'Amount', 'Date', 'Status', 'Sender'])
+        df = pd.read_csv(f"{DEBT_CSV_URL}&r={random.randint(1,999)}")
+        df.columns = df.columns.str.strip()
+        df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
+        return df
+    except Exception: 
+        return pd.DataFrame(columns=['ID', 'Name', 'Type', 'Amount', 'Date', 'Status', 'Sender'])
 
 def create_pdf(df):
     try:
@@ -136,18 +149,19 @@ def create_pdf(df):
             for w in widths.values(): pdf.cell(w, h, txt="", border=1)
             pdf.set_y(y_start + h)
         return bytes(pdf.output())
-    except: return None
+    except Exception: 
+        return None
 
 def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None):
     try:
         if not entry_date: 
             entry_date = datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
-        
         payload = {"item": item, "amount": amount, "category": category, "type": type, "date": entry_date, "sender": st.session_state.user.capitalize()}
         requests.post(WEB_APP_URL, json=payload, timeout=10)
         send_whatsapp_auto(f"✅ *AI Entry Added*\n📝 Item: {item}\n💰 Amt: ₹{amount}")
-        return f"Success: {item} - ₹{amount} ({type}) on {entry_date}"
-    except Exception as e: return f"Error: {str(e)}"
+        return f"Success: {item} - ₹{amount} ({type})"
+    except Exception as e: 
+        return f"Error: {str(e)}"
 
 def add_multiple_entries(entries_list):
     results = []
@@ -165,11 +179,83 @@ def add_multiple_entries(entries_list):
         summary_text = '\n'.join([f'• {r}' for r in results])
         send_whatsapp_auto(f'✅ *AI Multi-Entries Added*\n{summary_text}')
         return f'Success: Added {len(results)} items.'
-    except Exception as e: return f'Error: {str(e)}'
+    except Exception as e: 
+        return f'Error: {str(e)}'
+
+def add_debt_via_ai(name, type, amount, date=None):
+    try:
+        if not date: 
+            date = datetime.now(GST).strftime("%Y-%m-%d")
+        payload = {"action": "add_debt", "name": name, "type": type, "amount": amount, "date": date, "sender": st.session_state.user.capitalize()}
+        requests.post(WEB_APP_URL, json=payload, timeout=10)
+        send_whatsapp_auto(f"🤝 *AI Debt Added*\n👤 Person: {name}\n📌 Type: {type}\n💰 Amt: ₹{amount}")
+        return f"Success: {type} - {name} - ₹{amount}"
+    except Exception as e: 
+        return f"Error: {str(e)}"
 
 tools = [
-    {"type": "function", "function": {"name": "add_new_entry", "description": "Add a single expense or income", "parameters": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}, "category": {"type": "string", "description": "Food, Shop, Fish, Travel, Rent, Others"}, "type": {"type": "string", "enum": ["Debit", "Credit"]}, "date": {"type": "string", "description": "YYYY-MM-DD HH:MM:SS"}}, "required": ["item", "amount"]}}},
-    {"type": "function", "function": {"name": "add_multiple_entries", "description": "Add multiple expenses", "parameters": {"type": "object", "properties": {"entries_list": {"type": "array", "items": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}, "category": {"type": "string"}, "type": {"type": "string", "enum": ["Debit", "Credit"]}, "date": {"type": "string", "description": "YYYY-MM-DD HH:MM:SS"}}, "required": ["item", "amount"]}}}, "required": ["entries_list"]}}}
+    {
+        "type": "function", 
+        "function": {
+            "name": "add_new_entry", 
+            "description": "Add a single expense or income", 
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "item": {"type": "string"}, 
+                    "amount": {"type": "number"}, 
+                    "category": {"type": "string", "description": "Food, Shop, Fish, Travel, Rent, Others"}, 
+                    "type": {"type": "string", "enum": ["Debit", "Credit"]}, 
+                    "date": {"type": "string", "description": "YYYY-MM-DD HH:MM:SS"}
+                }, 
+                "required": ["item", "amount"]
+            }
+        }
+    },
+    {
+        "type": "function", 
+        "function": {
+            "name": "add_multiple_entries", 
+            "description": "Add multiple expenses", 
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "entries_list": {
+                        "type": "array", 
+                        "items": {
+                            "type": "object", 
+                            "properties": {
+                                "item": {"type": "string"}, 
+                                "amount": {"type": "number"}, 
+                                "category": {"type": "string"}, 
+                                "type": {"type": "string", "enum": ["Debit", "Credit"]}, 
+                                "date": {"type": "string"}
+                            }, 
+                            "required": ["item", "amount"]
+                        }
+                    }
+                }, 
+                "required": ["entries_list"]
+            }
+        }
+    },
+    {
+        "type": "function", 
+        "function": {
+            "name": "add_debt_entry", 
+            "description": "Add money lent or borrowed to Debt Tracker", 
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "name": {"type": "string", "description": "Person name"}, 
+                    "type": {"type": "string", "enum": ["Lent (കൊടുത്തത്)", "Borrowed (വാങ്ങിയത്)"]}, 
+                    "amount": {"type": "number"}, 
+                    "date": {"type": "string"}
+                }, 
+                "required": ["name", "type", "amount"]
+            }
+        }
+    }
 ]
 
 # --- 🔒 LOGIN SCREEN ---
@@ -184,7 +270,8 @@ if not st.session_state.auth:
             if USER_PINS.get(u) == pin:
                 st.session_state.auth, st.session_state.user = True, u
                 st.rerun()
-            else: st.error("❌ Incorrect PIN!")
+            else: 
+                st.error("❌ Incorrect PIN!")
         st.markdown('</div>', unsafe_allow_html=True)
 
 else:
@@ -205,7 +292,9 @@ else:
     menu = ["💰 Add Entry", "📅 Calendar", "📊 Report", "🔍 History", "🤝 Debt Tracker", "🤖 AI Chat", "🧠 My AI Buddy"]
     if st.session_state.user != "shabana": menu.insert(0, "🏠 Dashboard")
     page = st.sidebar.radio("Menu", menu)
-    if st.sidebar.button("Logout"): st.session_state.auth = False; st.rerun()
+    if st.sidebar.button("Logout"): 
+        st.session_state.auth = False
+        st.rerun()
 
     # --- DASHBOARD ---
     if page == "🏠 Dashboard" and not df.empty:
@@ -254,7 +343,6 @@ else:
             if st.form_submit_button("SAVE & NOTIFY"):
                 try:
                     am = float(am_str.strip().replace(',', ''))
-                    
                     if not st.session_state.entry_saved_flag:
                         payload = {"item": it, "amount": am, "category": cat, "type": ty, "date": datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S"), "sender": st.session_state.user.capitalize()}
                         requests.post(WEB_APP_URL, json=payload, timeout=10)
@@ -262,7 +350,6 @@ else:
                         
                         st.session_state.entry_saved_flag = True
                         st.success("Saved! ✅")
-                        
                         time.sleep(1)
                         st.session_state.entry_saved_flag = False
                         st.rerun()
@@ -297,7 +384,8 @@ else:
         df_rep['Month'] = df_rep['Date'].dt.strftime('%B %Y')
         months = df_rep.dropna(subset=['Month']).sort_values(by='Date', ascending=False)['Month'].unique()
         
-        if len(months) == 0: st.warning("No data found!")
+        if len(months) == 0: 
+            st.warning("No data found!")
         else:
             sel_m = st.selectbox("Select Month", months)
             m_df = df_rep[df_rep['Month'] == sel_m].copy()
@@ -317,10 +405,99 @@ else:
             clean_df['Date'] = clean_df['Date'].dt.strftime('%d/%m/%Y')
             st.dataframe(clean_df.iloc[::-1], use_container_width=True)
 
+            if page == "📊 Report":
+                pdf_bytes = create_pdf(clean_df)
+                if pdf_bytes:
+                    st.download_button(
+                        label="📄 Download PDF Report",
+                        data=pdf_bytes,
+                        file_name=f"Paichi_Report_{sel_m}.pdf",
+                        mime="application/pdf"
+                    )
+
     # --- DEBT TRACKER ---
     elif page == "🤝 Debt Tracker":
-        st.title("🤝 Debt Tracker")
-        st.info("വരും ദിവസങ്ങളിൽ ഇതിലേക്ക് കൂടുതൽ ഫീച്ചറുകൾ വരും!")
+        st.title("🤝 Debt Tracker (കടം കണക്കുകൾ - Permanent)")
+        df_debts = load_debts_data()
+
+        tab1, tab2, tab3 = st.tabs(["📋 View All Debts", "➕ Add New Debt", "⚙️ Settlement History"])
+
+        with tab1:
+            st.subheader("Active Debts & Loans")
+            if not df_debts.empty:
+                pending_df = df_debts[df_debts['Status'] == "Pending"]
+                total_lent = pending_df[pending_df['Type'].str.contains("Lent", na=False)]['Amount'].sum()
+                total_borrowed = pending_df[pending_df['Type'].str.contains("Borrowed", na=False)]['Amount'].sum()
+            else:
+                total_lent, total_borrowed = 0.0, 0.0
+
+            col_a, col_b = st.columns(2)
+            col_a.markdown(f'<div class="glass-card"><h4 style="color:#00FF00;">Total Lent (കിട്ടാനുള്ളത്)</h4><h2 style="color:#00FF00;">₹{total_lent:,.2f}</h2></div>', unsafe_allow_html=True)
+            col_b.markdown(f'<div class="glass-card"><h4 style="color:#FF3131;">Total Borrowed (കൊടുക്കാനുള്ളത്)</h4><h2 style="color:#FF3131;">₹{total_borrowed:,.2f}</h2></div>', unsafe_allow_html=True)
+
+            st.markdown("---")
+
+            if df_debts.empty or len(df_debts[df_debts['Status'] == "Pending"]) == 0:
+                st.info("നിലവിൽ പെൻഡിംഗ് ആയ കടങ്ങൾ ഒന്നുമില്ല.")
+            else:
+                pending_items = df_debts[df_debts['Status'] == "Pending"].to_dict('records')
+                for debt in pending_items:
+                    with st.container():
+                        c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 2, 2])
+                        c1.write(f"**{debt['Name']}**")
+                        c2.write(f"{debt['Type']}")
+                        c3.write(f"**₹{debt['Amount']:,.2f}**")
+                        c4.write(f"{str(debt['Date']).split(' ')[0]}")
+                        
+                        if c5.button("✅ Settle", key=f"settle_cloud_{debt['ID']}"):
+                            try:
+                                payload = {"action": "settle_debt", "id": debt['ID']}
+                                requests.post(WEB_APP_URL, json=payload, timeout=10)
+                                st.success(f"{debt['Name']}-ന്റെ കണക്ക് തീർപ്പാക്കി!")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+                        st.markdown("<hr style='margin: 5px 0; border-color: rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
+
+        with tab2:
+            st.subheader("Add New Debt Entry")
+            with st.form("cloud_debt_form", clear_on_submit=True):
+                d_name = st.text_input("👤 Person Name (ആരുടെ പേര്)")
+                d_type = st.selectbox("📌 Transaction Type", ["Lent (കൊടുത്തത്)", "Borrowed (വാങ്ങിയത്)"])
+                d_amount = st.number_input("💰 Amount (₹)", min_value=1.0, step=10.0)
+                d_date = st.date_input("📅 Date", value=datetime.now(GST).date())
+
+                if st.form_submit_button("SAVE TO GOOGLE SHEET 💾"):
+                    if not d_name.strip():
+                        st.error("தயவுசெய்து പേര് നൽകുക!")
+                    else:
+                        try:
+                            payload = {
+                                "action": "add_debt",
+                                "name": d_name.strip(),
+                                "type": d_type,
+                                "amount": d_amount,
+                                "date": str(d_date),
+                                "sender": st.session_state.user.capitalize()
+                            }
+                            requests.post(WEB_APP_URL, json=payload, timeout=10)
+                            send_whatsapp_auto(f"🤝 *New Debt Saved*\n👤 Person: {d_name}\n📌 Type: {d_type}\n💰 Amt: ₹{d_amount}")
+
+                            st.success("Debt successfully saved to Google Sheet! ✅")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to save: {e}")
+
+        with tab3:
+            st.subheader("Settled History")
+            if df_debts.empty or len(df_debts[df_debts['Status'] == "Settled"]) == 0:
+                st.info("തീർപ്പാക്കിയ കണക്കുകൾ ഒന്നുമില്ല.")
+            else:
+                settled_df = df_debts[df_debts['Status'] == "Settled"]
+                for _, item in settled_df.iterrows():
+                    st.write(f"✔️ **{item['Name']}** - {item['Type']} - ₹{item['Amount']:,.2f} (Date: {str(item['Date']).split(' ')[0]})")
 
     # --- MY AI BUDDY ---
     elif page == "🧠 My AI Buddy":
@@ -337,11 +514,12 @@ else:
                     client = Groq(api_key=GROQ_API_KEY)
                     system_prompt = "You are a helpful personal AI assistant for a 51-year-old Malayali. Answer their questions in Malayalam in a friendly way."
                     messages = [{"role": "system", "content": system_prompt}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.buddy_messages[-4:]]
-                    response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=messages, max_tokens=1024)
+                    response = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=messages, max_tokens=1024)
                     ai_reply = response.choices[0].message.content
                     st.session_state.buddy_messages.append({"role": "assistant", "content": ai_reply})
                     with st.chat_message("assistant"): st.markdown(ai_reply)
-                except Exception as e: st.error(f"Error: {e}")
+                except Exception as e: 
+                    st.error(f"Error: {e}")
 
     # --- AI CHAT (AI Agent with Confirmation & Loop Fixed) ---
     elif page == "🤖 AI Chat":
@@ -349,7 +527,6 @@ else:
         
         if "messages" not in st.session_state: st.session_state.messages = []
 
-        # 1. പെൻഡിംഗ് എൻട്രി ഉണ്ടെങ്കിൽ ബട്ടൺ കാണിക്കുക
         if st.session_state.pending_entry:
             st.warning(f"⏳ നിങ്ങൾ പറഞ്ഞത്: **{st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}**. ഇത് എൻട്രി ചെയ്യണോ?")
             col1, col2 = st.columns(2)
@@ -372,11 +549,9 @@ else:
                 st.session_state.last_processed_prompt = None
                 st.rerun()
 
-        # 2. ചാറ്റ് ഹിസ്റ്ററി കാണിക്കുക
         for message in st.session_state.messages:
             with st.chat_message(message["role"]): st.markdown(message["content"])
 
-        # 3. യൂസർ ഇൻപുട്ട് എടുക്കുക
         v_raw = speech_to_text(language='ml', key='ai_voice_input')
         prompt = st.chat_input("Ask anything or add expense...", key="ai_chat_box")
         final_prompt = v_raw if v_raw else prompt
@@ -385,7 +560,6 @@ else:
             if st.session_state.get("last_processed_prompt") != final_prompt:
                 st.session_state.last_processed_prompt = final_prompt
                 
-                # യൂസർ 'yes' എന്ന് ടൈപ്പ് ചെയ്താൽ, പെൻഡിംഗ് എൻട്രി സേവ് ചെയ്യുക
                 if final_prompt.lower().strip() in ["yes", "y", "yep", "ya", "അതെ", "ശരി"] and st.session_state.pending_entry:
                     entry_data = st.session_state.pending_entry
                     st.session_state.messages.append({"role": "user", "content": final_prompt})
@@ -397,10 +571,9 @@ else:
                     )
                     ai_msg = f"✅ ചേട്ടാ, {entry_data['item']}-ന് ₹{entry_data['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!" if "Success" in result else f"❌ {result}"
                     st.session_state.messages.append({"role": "assistant", "content": ai_msg})
-                    st.session_state.last_processed_prompt = None # ലൂപ്പ് ഒഴിവാക്കാൻ
+                    st.session_state.last_processed_prompt = None
                     st.rerun()
 
-                # യൂസർ 'no' എന്ന് ടൈപ്പ് ചെയ്താൽ, ക്യാൻസൽ ചെയ്യുക
                 elif final_prompt.lower().strip() in ["no", "n", "nope", "അല്ല", "വേണ്ട"] and st.session_state.pending_entry:
                     st.session_state.messages.append({"role": "user", "content": final_prompt})
                     st.session_state.pending_entry = None
@@ -408,7 +581,6 @@ else:
                     st.session_state.last_processed_prompt = None
                     st.rerun()
 
-                # അല്ലെങ്കിൽ പുതിയ എൻട്രിക്കായി AI-യെ വിളിക്കുക
                 else:
                     st.session_state.messages.append({"role": "user", "content": final_prompt})
                     with st.chat_message("user"): st.markdown(final_prompt)
@@ -417,12 +589,12 @@ else:
                         try:
                             client = Groq(api_key=GROQ_API_KEY)
                             gst_now = datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
-                            system_instruction = f"നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. സമയം: {gst_now} (GST). ബാലൻസ്: {bal} Rs. 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക."
+                            system_instruction = f"നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. സമയം: {gst_now} (GST). ബാലൻസ്: {bal} Rs. പണം കൊടുത്തതോ വാങ്ങിയതോ ആണെങ്കിൽ 'add_debt_entry' ടൂൾ ഉപയോഗിക്കുക."
                             
                             messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
 
                             response = client.chat.completions.create(
-                                model="openai/gpt-oss-120b", messages=messages_for_api, tools=tools, tool_choice="auto", max_tokens=1024
+                                model="llama-3.3-70b-versatile", messages=messages_for_api, tools=tools, tool_choice="auto", max_tokens=1024
                             )
 
                             response_message = response.choices[0].message
@@ -438,6 +610,27 @@ else:
                                         }
                                         ai_msg = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ? (Type 'yes' or 'no')"
                                         st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                                        st.rerun()
+
+                                    elif tool_call.function.name == 'add_multiple_entries':
+                                        args = json.loads(tool_call.function.arguments)
+                                        entries = args.get("entries_list", [])
+                                        result = add_multiple_entries(entries)
+                                        ai_msg = f"✅ {len(entries)} എൻട്രികൾ ഒന്നിച്ച് സേവ് ചെയ്തിട്ടുണ്ട്!" if "Success" in result else f"❌ {result}"
+                                        st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                                        st.rerun()
+
+                                    elif tool_call.function.name == 'add_debt_entry':
+                                        args = json.loads(tool_call.function.arguments)
+                                        d_name = args.get("name")
+                                        d_type = args.get("type")
+                                        d_amount = args.get("amount")
+                                        d_date = args.get("date") or datetime.now(GST).strftime("%Y-%m-%d")
+
+                                        result = add_debt_via_ai(d_name, d_type, d_amount, d_date)
+                                        ai_msg = f"✅ ചേട്ടാ, **{d_name}**-ന് ₹{d_amount} ({d_type}) Debt Tracker-ൽ സേവ് ചെയ്തിട്ടുണ്ട്!" if "Success" in result else f"❌ {result}"
+                                        st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                                        st.session_state.last_processed_prompt = None
                                         st.rerun()
                                         
                             elif response_message.content:
