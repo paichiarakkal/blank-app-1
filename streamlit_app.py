@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime, timezone, timedelta # timedelta ചേർത്തു
+from datetime import datetime, timezone, timedelta
 import random
 import plotly.express as px
 from streamlit_mic_recorder import speech_to_text
@@ -9,6 +9,7 @@ from streamlit_autorefresh import st_autorefresh
 from fpdf import FPDF
 import re
 import json
+import time # time.sleep ഉപയോഗിക്കാൻ
 from groq import Groq
 from streamlit_calendar import calendar
 from twilio.rest import Client
@@ -74,6 +75,7 @@ if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_te
 if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
 if "last_processed_msg" not in st.session_state: st.session_state.last_processed_msg = None
 if "pending_entry" not in st.session_state: st.session_state.pending_entry = None
+if "entry_saved_flag" not in st.session_state: st.session_state.entry_saved_flag = False
 
 # --- HELPER FUNCTIONS ---
 def send_whatsapp_auto(msg):
@@ -89,7 +91,6 @@ def parse_mixed_dates(date_series):
     parsed = []
     for val in date_series:
         dt = pd.to_datetime(str(val).strip(), errors='coerce')
-        # സമയം നഷ്ടപ്പെടാതിരിക്കാൻ dt.replace ഉപയോഗിക്കുന്നു
         if not pd.isna(dt) and dt.year == 2026 and dt.month < 4: 
             dt = dt.replace(year=2026)
         if pd.isna(dt): 
@@ -139,7 +140,6 @@ def create_pdf(df):
 
 def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None):
     try:
-        # GST സമയവും തീയതിയും ഉപയോഗിക്കുന്നു
         if not entry_date: 
             entry_date = datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
         
@@ -157,7 +157,6 @@ def add_multiple_entries(entries_list):
             amount = entry.get('amount', 0)
             category = entry.get('category', 'Others')
             entry_type = entry.get('type', 'Debit')
-            # GST സമയവും തീയതിയും ഉപയോഗിക്കുന്നു
             entry_date = entry.get('date', datetime.now(GST).strftime('%Y-%m-%d %H:%M:%S'))
             
             payload = {"item": item, "amount": amount, "category": category, "type": entry_type, "date": entry_date, "sender": st.session_state.user.capitalize()}
@@ -255,10 +254,19 @@ else:
             if st.form_submit_button("SAVE & NOTIFY"):
                 try:
                     am = float(am_str.strip().replace(',', ''))
-                    payload = {"item": it, "amount": am, "category": cat, "type": ty, "date": datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S"), "sender": st.session_state.user.capitalize()}
-                    requests.post(WEB_APP_URL, json=payload, timeout=10)
-                    send_whatsapp_auto(f"✅ *Paichi Entry*\n📝 {it}\n💰 ₹{am}")
-                    st.success("Saved! ✅"); st.rerun()
+                    
+                    # ഡബിൾ എൻട്രി ഒഴിവാക്കാൻ entry_saved_flag ഉപയോഗിക്കുന്നു
+                    if not st.session_state.entry_saved_flag:
+                        payload = {"item": it, "amount": am, "category": cat, "type": ty, "date": datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S"), "sender": st.session_state.user.capitalize()}
+                        requests.post(WEB_APP_URL, json=payload, timeout=10)
+                        send_whatsapp_auto(f"✅ *Paichi Entry*\n📝 {it}\n💰 ₹{am}")
+                        
+                        st.session_state.entry_saved_flag = True
+                        st.success("Saved! ✅")
+                        
+                        time.sleep(1) # അൽപ്പം കാത്തിരിക്കുന്നു
+                        st.session_state.entry_saved_flag = False
+                        st.rerun()
                 except Exception as e: 
                     st.error(f"Error! Valid amount required. {e}")
 
@@ -363,12 +371,14 @@ else:
                     ai_msg = f"❌ എൻട്രി ഇടാൻ പറ്റിയില്ല: {result}"
                 
                 st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                st.session_state.last_processed_prompt = None # ലൂപ്പ് ഒഴിവാക്കാൻ
                 st.rerun()
                 
             if col2.button("❌ No, Cancel", key="cancel_entry_btn"):
                 st.session_state.pending_entry = None
                 ai_msg = "ശരി ചേട്ടാ, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല."
                 st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                st.session_state.last_processed_prompt = None # ലൂപ്പ് ഒഴിവാക്കാൻ
                 st.rerun()
 
         for message in st.session_state.messages:
@@ -387,7 +397,6 @@ else:
                 with st.spinner("AI ആലോചിക്കുന്നു..."):
                     try:
                         client = Groq(api_key=GROQ_API_KEY)
-                        # AI-ക്ക് ദുബായ് സമയം നൽകുന്നു
                         gst_now = datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
                         system_instruction = f"നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. സമയം: {gst_now} (GST). ബാലൻസ്: {bal} Rs. 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക."
                         
@@ -412,7 +421,6 @@ else:
                                         "amount": args.get("amount"),
                                         "category": args.get("category", "Others"),
                                         "type": args.get("type", "Debit"),
-                                        # ഇവിടെയും GST സമയം ഉപയോഗിക്കുന്നു
                                         "date": args.get("date") or datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
                                     }
                                     ai_msg = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ?"
