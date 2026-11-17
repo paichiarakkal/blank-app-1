@@ -1,399 +1,428 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import random
 import plotly.express as px
+from streamlit_mic_recorder import speech_to_text
+from streamlit_autorefresh import st_autorefresh
 from fpdf import FPDF
+import re
 import json
-from groq import Groq # 👈 പുതിയത്
-
-# --- CONFIG ---
-CSV_URL = "YOUR_FINANCE_SHEET_CSV_LINK"
-FORM_API = "YOUR_FINANCE_FORM_API"
-STOCK_CSV_URL = "YOUR_STOCK_SHEET_CSV_LINK"
-STOCK_FORM_API = "YOUR_STOCK_FORM_API"
-
-USER_PINS = {"admin": "1234", "shop1": "1111"}
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
-
-# --- SAFE FORM SUBMIT (Demo-safe) ---
-def submit_form(api_url, payload):
-    if not api_url or "YOUR_" in api_url:
-        return True  # 🎭 Demo mode: simulate success
-    try:
-        r = requests.post(api_url, data=payload, timeout=10)
-        return r.status_code == 200
-    except Exception as e:
-        st.error(f"❌ Submission failed: {e}")
-        return False
+from groq import Groq
+from streamlit_calendar import calendar
+from twilio.rest import Client
 
 # --- STREAMLIT UI SETUP ---
-st.set_page_config(page_title="PAICHI BUSINESS", layout="wide")
+st.set_page_config(page_title="PAICHI EXPENSES v3.0", layout="wide")
 
-st.markdown("""
+# --- CONFIG & SETTINGS ---
+CSV_URL = st.secrets.get("GOOGLE_SHEET_CSV", "")
+WEB_APP_URL = st.secrets.get("APPS_SCRIPT_URL", "")
+WA_PHONE = "971551347989"
+
+USER_PINS = {
+    "faisal": st.secrets.get("PIN_FAISAL", ""),
+    "shabana": st.secrets.get("PIN_SHABANA", ""),
+    "admin": st.secrets.get("PIN_ADMIN", "")
+}
+BG_IMAGE_URL = "https://raw.githubusercontent.com/paichiarakkal/paichiarakkal/main/profile.jpg"
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
+
+# UAE ടൈംസോൺ ഫംഗ്ഷൻ (UTC + 4 മണിക്കൂർ)
+def get_uae_time():
+    return datetime.now(timezone.utc) + timedelta(hours=4)
+
+st_autorefresh(interval=60000, key="auto_refresh")
+
+# ============================================
+# 🎨 3D GLASSMORPHISM CSS (മാറ്റമില്ല)
+# ============================================
+st.markdown(f"""
     <style>
-    /* ബാക്ക്ഗ്രൗണ്ട് ഇളം നിറമാക്കി മാറ്റി */
-    .stApp { background: #f4f6f9; color: #000000; }
-    [data-testid="stSidebar"] { background: #e0e0e0 !important; }
-    
-    .stButton>button { background-color: #007BFF; color: #ffffff; border-radius: 10px; font-weight: bold; }
-    .stDownloadButton>button { background-color: #28a745; color: #ffffff; border-radius: 10px; font-weight: bold; }
-    
-    /* ബാനർ ഡിസൈൻ */
-    .banner { background: #ffffff; padding: 25px; border-radius: 15px; border-left: 10px solid #007BFF; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-    
-    /* എഴുത്തുകളുടെ നിറം കറുപ്പ് (Dark) ആക്കി മാറ്റി */
-    h1, h2, h3, p, label, span { color: #000000 !important; font-weight: bold !important; }
-    
-    /* ചാറ്റ് ബോക്സ് ഡിസൈൻ */
-    [data-testid="stChatMessage"] { background-color: #ffffff !important; border-radius: 10px; padding: 15px; border: 1px solid #ccc; color: #000; }
-    
-    /* ബാലൻസ് കാണിക്കുന്ന ബാനറിലെ എഴുത്തുകൾക്ക് നിറം */
-    .banner span { color: #007BFF !important; }
+    [data-testid="stAppViewContainer"] {{ 
+        background-image: linear-gradient(rgba(10, 10, 25, 0.85), rgba(10, 10, 25, 0.95)), url("{BG_IMAGE_URL}"); 
+        background-size: cover; background-attachment: fixed; background-position: center;
+    }}
+    [data-testid="stSidebar"] {{ 
+        background: rgba(20, 20, 35, 0.6) !important; backdrop-filter: blur(15px);
+        border-right: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 5px 0 15px rgba(0,0,0,0.5);
+    }}
+    .stButton>button {{ 
+        background: linear-gradient(135deg, #FFD700, #FFA500); color: #000; border-radius: 12px; 
+        font-weight: bold; width: 100%; border: none; padding: 10px;
+        box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4), inset 0 -3px 0 rgba(0,0,0,0.2);
+        transition: all 0.2s ease;
+    }}
+    .stButton>button:hover {{ transform: translateY(-2px); box-shadow: 0 6px 20px rgba(255, 215, 0, 0.6); }}
+    .glass-card {{ background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 25px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); margin-bottom: 25px; text-align: center; }}
+    .balance-banner {{ background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02)); backdrop-filter: blur(10px); padding: 30px; border-radius: 20px; border-left: 8px solid #FFD700; text-align: center; margin-bottom: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }}
+    .category-box {{ background: rgba(0, 0, 0, 0.5); padding: 20px; border-radius: 15px; text-align: center; border-bottom: 4px solid #FFD700; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }}
+    .category-box:hover {{ transform: scale(1.03); }}
+    .alert-banner {{ background: linear-gradient(90deg, #ff4d4d, #cc0000); color: white; padding: 15px; border-radius: 10px; text-align: center; font-weight: bold; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(255, 77, 77, 0.4); }}
+    .login-card {{ background: rgba(20, 20, 35, 0.8); backdrop-filter: blur(20px); padding: 40px; border-radius: 20px; max-width: 450px; margin: auto; margin-top: 80px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 15px 35px rgba(0,0,0,0.6); }}
+    h1, h2, h3, p, label {{ color: #FFFFFF !important; font-weight: bold !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }}
+    [data-testid="stChatMessage"] {{ background: rgba(32, 44, 51, 0.9) !important; border-radius: 15px !important; padding: 15px !important; margin-bottom: 10px !important; border: 1px solid rgba(255,255,255,0.05) !important; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }}
+    [data-testid="stChatInput"] {{ background-color: rgba(42, 57, 66, 0.8) !important; border-radius: 25px !important; border: 1px solid rgba(255,255,255,0.1) !important; padding: 5px !important; }}
+    [data-testid="stChatInput"] textarea {{ color: white !important; }}
+    input, textarea, select {{ color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important; background-color: rgba(0, 0, 0, 0.5) !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; border-radius: 8px !important; }}
+    ::placeholder {{ color: #AAAAAA !important; }}
     </style>
 """, unsafe_allow_html=True)
-if 'auth' not in st.session_state:
-    st.session_state.auth, st.session_state.user = False, ""
-if "messages" not in st.session_state:
-    st.session_state.messages = []
 
-# --- HELPER: Safe CSV load ---
-def _append_cache_buster(url):
-    if not url or "YOUR_" in url:
-        raise ValueError("placeholder")
-    sep = "&" if "?" in url else "?"
-    return f"{url}{sep}r={random.randint(1,999)}"
+if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user = False, ""
+if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Shop kuri book"
+if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
+if "last_processed_msg" not in st.session_state: st.session_state.last_processed_msg = None
+if "pending_entry" not in st.session_state: st.session_state.pending_entry = None
 
-@st.cache_data(ttl=5)
-def load_finance_data():
+# --- HELPER FUNCTIONS ---
+def send_whatsapp_auto(msg):
     try:
-        df = pd.read_csv(_append_cache_buster(CSV_URL))
+        account_sid = st.secrets.get("TWILIO_ACCOUNT_SID", "")
+        auth_token = st.secrets.get("TWILIO_AUTH_TOKEN", "")
+        if account_sid and auth_token:
+            client = Client(account_sid, auth_token)
+            client.messages.create(from_='whatsapp:+14155238886', body=msg, to=f'whatsapp:+{WA_PHONE}')
+    except: pass 
+
+def parse_mixed_dates(date_series):
+    parsed = []
+    for val in date_series:
+        dt = pd.to_datetime(str(val).strip(), errors='coerce')
+        if not pd.isna(dt) and dt.year == 2026 and dt.month < 4: dt = datetime(2026, dt.day, dt.month)
+        if pd.isna(dt): dt = pd.to_datetime(str(val).strip(), dayfirst=True, errors='coerce')
+        parsed.append(dt)
+    return pd.Series(parsed)
+
+@st.cache_data(ttl=10)
+def load_data():
+    try:
+        if not CSV_URL: return pd.DataFrame()
+        df = pd.read_csv(f"{CSV_URL}&r={random.randint(1,999)}")
         df.columns = df.columns.str.strip()
+        df['Date'] = parse_mixed_dates(df['Date'])
         df['Debit'] = pd.to_numeric(df['Debit'], errors='coerce').fillna(0)
         df['Credit'] = pd.to_numeric(df['Credit'], errors='coerce').fillna(0)
         return df
-    except:
-        return pd.DataFrame({
-            'Date': ['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04'],
-            'Shop Name': ['Shop 1', 'Shop 2', 'Shop 1', 'Shop 2'],
-            'Item': ['Sales', 'Sales', 'Salary: Rahim', 'Rent'],
-            'Debit': [0, 0, 2500, 5000],
-            'Credit': [4500, 6000, 0, 0]
-        })
+    except: return pd.DataFrame()
 
-@st.cache_data(ttl=5)
-def load_stock_data():
+def create_pdf(df):
     try:
-        df = pd.read_csv(_append_cache_buster(STOCK_CSV_URL))
-        df.columns = df.columns.str.strip()
-        df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce').fillna(0)
-        return df
-    except:
-        return pd.DataFrame({
-            'Date': ['2026-11-01', '2026-11-02', '2026-11-03'],
-            'Item': ['Sugar', 'Sugar', 'Milk'],
-            'Quantity': [100, 20, 50],
-            'Type': ['Stock In', 'Stock Out', 'Stock In']
-        })
-
-def generate_pdf(df, title, columns):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(190, 10, txt=title, ln=True, align='C')
-    pdf.ln(10)
-    pdf.set_font("Arial", 'B', 10)
-    col_width = 190 / len(columns)
-    for col in columns:
-        pdf.cell(col_width, 10, txt=str(col), border=1, align='C')
-    pdf.ln()
-    pdf.set_font("Arial", size=9)
-    for _, row in df.iterrows():
-        for col in columns:
-            val = str(row[col]).encode('ascii', 'ignore').decode('ascii')
-            pdf.cell(col_width, 10, txt=val, border=1)
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", 'B', 14)
+        pdf.cell(190, 10, txt="PAICHI FINANCE REPORT", ln=True, align='C')
+        pdf.ln(10)
+        pdf.set_font("Arial", 'B', 10)
+        widths = {"Date": 30, "Item": 85, "Debit": 35, "Credit": 35}
+        for col in widths: pdf.cell(widths[col], 10, txt=col, border=1, align='C')
         pdf.ln()
-    return bytes(pdf.output())
+        pdf.set_font("Arial", size=9)
+        for _, row in df.iterrows():
+            if pdf.get_y() > 260: pdf.add_page()
+            y_start = pdf.get_y()
+            pdf.cell(30, 10, txt=str(row['Date']), border=0)
+            x_after_date = pdf.get_x()
+            pdf.multi_cell(85, 5, txt=str(row['Item']).encode('ascii', 'ignore').decode('ascii'), border=0)
+            h = max(10, pdf.get_y() - y_start)
+            pdf.set_xy(x_after_date + 85, y_start)
+            pdf.cell(35, h, txt=str(row['Debit']), border=0, align='R')
+            pdf.cell(35, h, txt=str(row['Credit']), border=0, align='R')
+            pdf.set_xy(10, y_start)
+            for w in widths.values(): pdf.cell(w, h, txt="", border=1)
+            pdf.set_y(y_start + h)
+        return bytes(pdf.output())
+    except: return None
 
-# ============================================
-# 🤖 AI AGENT TOOLS
-# ============================================
+def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None):
+    try:
+        if not entry_date: 
+            # UAE സമയം ഉപയോഗിക്കുന്നു
+            entry_date = get_uae_time().strftime("%Y-%m-%d")
+        
+        # UAE സമയം Timestamp ആയി അയക്കുന്നു (നിങ്ങൾക്ക് വേണമെങ്കിൽ)
+        current_time = get_uae_time().strftime("%Y-%m-%d %H:%M:%S")
+        
+        payload = {"item": item, "amount": amount, "category": category, "type": type, "date": entry_date, "timestamp": current_time, "sender": st.session_state.user.capitalize()}
+        requests.post(WEB_APP_URL, json=payload, timeout=10)
+        send_whatsapp_auto(f"✅ *AI Entry Added*\n📝 Item: {item}\n💰 Amt: ₹{amount}")
+        return f"Success: {item} - ₹{amount} ({type}) on {entry_date}"
+    except Exception as e: return f"Error: {str(e)}"
+
+def add_multiple_entries(entries_list):
+    results = []
+    try:
+        for entry in entries_list:
+            item = entry.get('item', 'Unknown')
+            amount = entry.get('amount', 0)
+            category = entry.get('category', 'Others')
+            entry_type = entry.get('type', 'Debit')
+            # UAE സമയം ഉപയോഗിക്കുന്നു
+            entry_date = entry.get('date') or get_uae_time().strftime('%Y-%m-%d')
+            
+            payload = {"item": item, "amount": amount, "category": category, "type": entry_type, "date": entry_date, "sender": st.session_state.user.capitalize()}
+            requests.post(WEB_APP_URL, json=payload, timeout=10)
+            results.append(f'{item} - ₹{amount}')
+        summary_text = '\n'.join([f'• {r}' for r in results])
+        send_whatsapp_auto(f'✅ *AI Multi-Entries Added*\n{summary_text}')
+        return f'Success: Added {len(results)} items.'
+    except Exception as e: return f'Error: {str(e)}'
+
 tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "add_finance",
-            "description": "ഒരു പുതിയ സാമ്പത്തിക ഇടപാട് (Debit/Credit) ചേർക്കുക.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "shop": {"type": "string", "enum": ["Shop 1", "Shop 2"]},
-                    "item": {"type": "string", "description": "ഇടപാടിന്റെ വിവരണം"},
-                    "amount": {"type": "number"},
-                    "type": {"type": "string", "enum": ["Debit", "Credit"]}
-                },
-                "required": ["shop", "item", "amount", "type"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_stock",
-            "description": "സ്റ്റോക്കിൽ പുതിയ സാധനങ്ങൾ ചേർക്കുകയോ കുറയ്ക്കുകയോ ചെയ്യുക.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "item_name": {"type": "string"},
-                    "qty": {"type": "number"},
-                    "stock_type": {"type": "string", "enum": ["Stock In", "Stock Out"]}
-                },
-                "required": ["item_name", "qty", "stock_type"]
-            }
-        }
-    }
+    {"type": "function", "function": {"name": "add_new_entry", "description": "Add a single expense or income", "parameters": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}, "category": {"type": "string", "description": "Food, Shop, Fish, Travel, Rent, Others"}, "type": {"type": "string", "enum": ["Debit", "Credit"]}, "date": {"type": "string", "description": "YYYY-MM-DD"}}, "required": ["item", "amount"]}}},
+    {"type": "function", "function": {"name": "add_multiple_entries", "description": "Add multiple expenses", "parameters": {"type": "object", "properties": {"entries_list": {"type": "array", "items": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}, "category": {"type": "string"}, "type": {"type": "string", "enum": ["Debit", "Credit"]}, "date": {"type": "string"}}, "required": ["item", "amount"]}}}, "required": ["entries_list"]}}}
 ]
 
-def execute_add_finance(shop, item, amount, t_type):
-    payload = {
-        "entry.1044099436": datetime.now().strftime("%Y-%m-%d"),
-        "entry.2013476337": f"[{shop}] {item}",
-        "entry.1460982454": amount if t_type == "Debit" else 0,
-        "entry.1221658767": 0 if t_type == "Debit" else amount
-    }
-    if submit_form(FORM_API, payload):
-        st.cache_data.clear()
-        return "Success"
-    return "Failed"
-
-def execute_add_stock(item_name, qty, stock_type):
-    payload = {
-        "entry.1044099436": datetime.now().strftime("%Y-%m-%d"),
-        "entry.2013476337": item_name,
-        "entry.1460982454": qty,
-        "entry.1221658767": stock_type
-    }
-    if submit_form(STOCK_FORM_API, payload):
-        st.cache_data.clear()
-        return "Success"
-    return "Failed"
-
-# --- 🔒 LOGIN ---
+# --- 🔒 LOGIN SCREEN ---
 if not st.session_state.auth:
-    st.markdown('<div style="max-width:400px; margin:auto; margin-top:100px; background:rgba(0,0,0,0.8); padding:30px; border-radius:20px;">', unsafe_allow_html=True)
-    st.subheader("🔐 PAICHI BUSINESS LOGIN")
-    u = st.selectbox("👤 Select Role", ["admin", "shop1"]).lower()
-    pin = st.text_input("🔑 Enter PIN (admin:1234, shop1:1111)", type="password", max_chars=4)
-    if st.button("LOGIN"):
-        if USER_PINS.get(u) == pin:
-            st.session_state.auth, st.session_state.user = True, u
-            st.rerun()
-        else:
-            st.error("❌ Incorrect PIN!")
-    st.markdown('</div>', unsafe_allow_html=True)
+    _, mid, _ = st.columns([1, 2, 1])
+    with mid:
+        st.markdown('<div class="login-card">', unsafe_allow_html=True)
+        st.subheader("🔐 PAICHI EXPENSES LOGIN")
+        u = st.selectbox("👤 Select User", ["faisal", "shabana", "admin"]).lower()
+        pin = st.text_input("🔑 Enter 4-Digit PIN", type="password", max_chars=4)
+        if st.button("UNLOCK APP 🔓"):
+            if USER_PINS.get(u) == pin:
+                st.session_state.auth, st.session_state.user = True, u
+                st.rerun()
+            else: st.error("❌ Incorrect PIN!")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-    st.sidebar.title(f"👋 Welcome, {st.session_state.user.capitalize()}")
-    # 👈 മെനുവിൽ AI Agent ചേർത്തു
-    menu = ["📊 Dashboard", "💰 Add Finance", "📦 Stock Management", "👨‍💼 Staff Salary", "🤖 AI Agent"]
-    page = st.sidebar.radio("Menu", menu)
-
-    if st.sidebar.button("Logout"):
-        st.session_state.auth = False
-        st.session_state.messages = []
-        st.rerun()
-
-    df_fin = load_finance_data()
-    df_stk = load_stock_data()
-    t_in, t_out = df_fin['Credit'].sum(), df_fin['Debit'].sum()
+    df = load_data()
+    t_in, t_out = (df['Credit'].sum(), df['Debit'].sum()) if not df.empty else (0.0, 0.0)
     bal = t_in - t_out
+    
+    if st.session_state.user != "shabana":
+        with st.sidebar.expander("⚙️ Settings"):
+            st.session_state.custom_alert_text = st.text_area("Alert Message", value=st.session_state.custom_alert_text)
+            st.session_state.low_limit = st.number_input("Low Balance Limit (₹)", value=st.session_state.low_limit)
+    
+    if bal < st.session_state.low_limit:
+        st.markdown(f'<div class="alert-banner">⚠️ ബാലൻസ് കുറവാണ്: {st.session_state.custom_alert_text} (₹{bal:,.2f})!</div>', unsafe_allow_html=True)
 
-    # --- 1. DASHBOARD ---
-    if page == "📊 Dashboard":
-        st.markdown(f'<div class="banner"><span style="font-size:20px; color:#00BFFF;">Total Business Balance</span><br><span style="font-size:40px; color:#FFF;">₹{bal:,.2f}</span></div>', unsafe_allow_html=True)
-        st.subheader("📈 Shop-wise Performance")
-        if not df_fin.empty:
-            shop_data = df_fin.groupby('Shop Name')[['Credit', 'Debit']].sum().reset_index()
-            fig = px.bar(shop_data, x='Shop Name', y=['Credit', 'Debit'], barmode='group',
-                         color_discrete_sequence=['#00FF00', '#FF3131'], title="Credit vs Debit")
-            st.plotly_chart(fig, use_container_width=True)
-            st.subheader("📋 Recent Transactions")
-            st.dataframe(df_fin.tail(10).iloc[::-1], use_container_width=True)
+    st.markdown(f'<div class="balance-banner"><span style="font-size:22px; color:#E0B0FF; letter-spacing: 2px;">AVAILABLE BALANCE</span><br><span style="font-size:50px; color:#FFD700; font-family: monospace;">₹{bal:,.2f}</span></div>', unsafe_allow_html=True)
+    
+    menu = ["💰 Add Entry", "📅 Calendar", "📊 Report", "🔍 History", "🤝 Debt Tracker", "🤖 AI Chat", "🧠 My AI Buddy"]
+    if st.session_state.user != "shabana": menu.insert(0, "🏠 Dashboard")
+    page = st.sidebar.radio("Menu", menu)
+    if st.sidebar.button("Logout"): st.session_state.auth = False; st.rerun()
 
-    # --- 2. ADD FINANCE ---
-    elif page == "💰 Add Finance":
-        st.title("💰 Finance Entry")
-        with st.form("finance_form", clear_on_submit=True):
-            shop = st.selectbox("Select Shop", ["Shop 1", "Shop 2"])
-            it = st.text_input("Description")
-            am_str = st.text_input("Amount")
-            ty = st.radio("Type", ["Debit (Expense)", "Credit (Sales)"], horizontal=True)
+    # --- DASHBOARD ---
+    if page == "🏠 Dashboard" and not df.empty:
+        st.title("Financial Overview")
+        st.markdown(f'<div class="glass-card"><h2 style="color:#00FF00;">Credit: ₹{t_in:,.2f}</h2><h2 style="color:#FF3131;">Debit: ₹{t_out:,.2f}</h2></div>', unsafe_allow_html=True)
+        
+        def extract_cat(x):
+            item_text = str(x).lower()
+            if any(w in item_text for w in ["food", "ഭക്ഷണം", "ചായ", "ഹോട്ടൽ", "ബിരിയാണി"]): return "Food"
+            elif any(w in item_text for w in ["shop", "കട", "സാധനങ്ങൾ", "സൂപ്പർമാർക്കറ്റ്"]): return "Shop"
+            elif any(w in item_text for w in ["fish", "മീൻ", "ഇറച്ചി", "ചിക്കൻ"]): return "Fish"
+            elif any(w in item_text for w in ["travel", "യാത്ര", "പെട്രോൾ", "വണ്ടി", "ടാക്സി"]): return "Travel"
+            elif any(w in item_text for w in ["rent", "വാടക", "റൂം"]): return "Rent"
+            return "Others"
+        df['Cat'] = df['Item'].apply(extract_cat)
+        cats = df.groupby('Cat')['Debit'].sum().to_dict()
+        cols = st.columns(3)
+        for idx, (c_name, c_amt) in enumerate(cats.items()):
+            if c_amt > 0:
+                with cols[idx % 3]: 
+                    st.markdown(f'<div class="category-box"><span style="color:#aaa;">Total {c_name}</span><br><span style="font-size:24px; color:#FFF;">₹{c_amt:,.2f}</span></div>', unsafe_allow_html=True)
 
-            if st.form_submit_button("SAVE ENTRY"):
-                clean = am_str.strip().replace(',', '')
-                if not clean:
-                    st.error("❗ Please enter an amount.")
-                else:
-                    try:
-                        am = float(clean)
-                        payload = {
-                            "entry.1044099436": datetime.now().strftime("%Y-%m-%d"),
-                            "entry.2013476337": f"[{shop}] {it}",
-                            "entry.1460982454": am if "Debit" in ty else 0,
-                            "entry.1221658767": 0 if "Debit" in ty else am
-                        }
-                        if submit_form(FORM_API, payload):
-                            st.success("Saved! ✅")
-                            st.cache_data.clear()
-                    except ValueError:
-                        st.error("❗ Invalid amount format.")
+    # --- ADD ENTRY ---
+    elif page == "💰 Add Entry":
+        st.title("Smart Voice Entry 🎙️")
+        v_raw = speech_to_text(language='ml', key='voice_v9')
+        v_cat, v_amt, v_desc, v_type = "Others", "", "", "Debit"
+        
+        if v_raw:
+            raw = v_raw.lower().replace('.', '').replace(',', '')
+            nums = re.findall(r'\d+', raw)
+            v_amt = nums[0] if nums else ""
+            v_desc = re.sub(r'\d+', '', raw).strip()
+            if any(x in raw for x in ["food", "ഭക്ഷണം", "ചായ", "ഹോട്ടൽ", "ബിരിയാണി"]): v_cat = "Food"
+            elif any(x in raw for x in ["shop", "കട"]): v_cat = "Shop"
+            elif any(x in raw for x in ["fish", "മീൻ", "ചിക്കൻ"]): v_cat = "Fish"
+            elif any(x in raw for x in ["travel", "പെട്രോൾ", "വണ്ടി"]): v_cat = "Travel"
+            if any(x in raw for x in ["കിട്ടി", "വന്നു", "തന്നു"]): v_type = "Credit"
 
-    # --- 3. STOCK MANAGEMENT ---
-    elif page == "📦 Stock Management":
-        st.title("📦 Stock & Inventory")
-        tab1, tab2, tab3 = st.tabs(["📊 Current Stock", "➕ Add Entry", "📄 Item History & PDF"])
+        with st.form("entry_form", clear_on_submit=True):
+            it = st.text_input("Description", value=v_desc)
+            am_str = st.text_input("Amount", value=str(v_amt))
+            cat = st.selectbox("Category", ["Food", "Shop", "Fish", "Travel", "Rent", "Others"], index=["Food", "Shop", "Fish", "Travel", "Rent", "Others"].index(v_cat))
+            ty = st.radio("Type", ["Debit", "Credit"], horizontal=True, index=0 if v_type == "Debit" else 1)
+            
+            if st.form_submit_button("SAVE & NOTIFY"):
+                try:
+                    am = float(am_str.strip().replace(',', ''))
+                    # UAE സമയം ഉപയോഗിക്കുന്നു
+                    uae_now = get_uae_time()
+                    payload = {"item": it, "amount": am, "category": cat, "type": ty, "date": uae_now.strftime("%Y-%m-%d"), "timestamp": uae_now.strftime("%Y-%m-%d %H:%M:%S"), "sender": st.session_state.user.capitalize()}
+                    requests.post(WEB_APP_URL, json=payload, timeout=10)
+                    send_whatsapp_auto(f"✅ *Paichi Entry*\n📝 {it}\n💰 ₹{am}")
+                    st.success("Saved! ✅"); st.rerun()
+                except Exception as e: 
+                    st.error(f"Error! Valid amount required. {e}")
 
-        with tab1:
-            if not df_stk.empty:
-                s = df_stk.copy()
-                s['In'] = s.apply(lambda x: x['Quantity'] if x['Type'] == 'Stock In' else 0, axis=1)
-                s['Out'] = s.apply(lambda x: x['Quantity'] if x['Type'] == 'Stock Out' else 0, axis=1)
-                final_stk = s.groupby('Item')[['In', 'Out']].sum().reset_index()
-                final_stk['Available Stock'] = final_stk['In'] - final_stk['Out']
-                st.dataframe(final_stk[['Item', 'Available Stock']], use_container_width=True)
-            else:
-                st.info("No stock data.")
+    # --- CALENDAR ---
+    elif page == "📅 Calendar" and not df.empty:
+        st.title("P&L Calendar View 📅")
+        df_cal = df.dropna(subset=['Date'])
+        summary = df_cal.groupby(df_cal['Date'].dt.strftime('%Y-%m-%d')).agg({'Debit': 'sum', 'Credit': 'sum'}).reset_index()
+        events = []
+        for _, row in summary.iterrows():
+            if row['Credit'] > 0: events.append({"title": f" +₹{row['Credit']:,.0f}", "start": row['Date'], "backgroundColor": "#198754"})
+            if row['Debit'] > 0: events.append({"title": f" -₹{row['Debit']:,.0f}", "start": row['Date'], "backgroundColor": "#dc3545"})
+        
+        cal_data = calendar(events=events, options={"headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth"}, "initialView": "dayGridMonth"}, key="pnl_calendar")
+        
+        if cal_data and cal_data.get("callback") == "eventClick":
+            event_data = cal_data.get("eventClick", {}).get("event", {})
+            dt_click = event_data.get("start", "").split("T")[0]
+            if dt_click:
+                st.markdown("---"); st.subheader(f"📋 Details for {pd.to_datetime(dt_click).strftime('%d %B %Y')}")
+                day_df = df_cal[df_cal['Date'].dt.strftime('%Y-%m-%d') == dt_click].copy()
+                if not day_df.empty:
+                    day_df['Date'] = day_df['Date'].dt.strftime('%d/%m/%Y')
+                    st.dataframe(day_df[['Date', 'Item', 'Debit', 'Credit']], use_container_width=True)
 
-        with tab2:
-            with st.form("stock_form", clear_on_submit=True):
-                item_name = st.text_input("Item Name")
-                qty = st.number_input("Quantity", min_value=1.0)
-                stock_type = st.radio("Type", ["Stock In", "Stock Out"], horizontal=True)
-                if st.form_submit_button("SAVE STOCK"):
-                    payload = {
-                        "entry.1044099436": datetime.now().strftime("%Y-%m-%d"),
-                        "entry.2013476337": item_name,
-                        "entry.1460982454": qty,
-                        "entry.1221658767": stock_type
-                    }
-                    if submit_form(STOCK_FORM_API, payload):
-                        st.success("Stock Updated! ✅")
-                        st.cache_data.clear()
+    # --- REPORT & HISTORY ---
+    elif (page == "📊 Report" or page == "🔍 History") and not df.empty:
+        df_rep = df[(df['Date'].dt.year == 2026) & (df['Date'].dt.month >= 4)].copy()
+        df_rep['Month'] = df_rep['Date'].dt.strftime('%B %Y')
+        months = df_rep.dropna(subset=['Month']).sort_values(by='Date', ascending=False)['Month'].unique()
+        
+        if len(months) == 0: st.warning("No data found!")
+        else:
+            sel_m = st.selectbox("Select Month", months)
+            m_df = df_rep[df_rep['Month'] == sel_m].copy()
+            m_deb, m_crd = m_df['Debit'].sum(), m_df['Credit'].sum()
+            
+            if page == "📊 Report":
+                st.title("Monthly Expense Analysis")
+                c1, c2, c3 = st.columns(3)
+                c1.markdown(f'<div class="glass-card"><h3 style="color:#00FF00;">Credit</h3><h1 style="color:#00FF00;">₹{m_crd:,.2f}</h1></div>', unsafe_allow_html=True)
+                c2.markdown(f'<div class="glass-card"><h3 style="color:#FF3131;">Expense</h3><h1 style="color:#FF3131;">₹{m_deb:,.2f}</h1></div>', unsafe_allow_html=True)
+                c3.markdown(f'<div class="glass-card"><h3 style="color:#FFD700;">Savings</h3><h1 style="color:#FFD700;">₹{m_crd - m_deb:,.2f}</h1></div>', unsafe_allow_html=True)
+                
+                m_df['Cat'] = m_df['Item'].apply(lambda x: x.split(':')[0] if ':' in str(x) else 'Others')
+                st.plotly_chart(px.pie(m_df[m_df['Debit'] > 0], values='Debit', names='Cat', hole=0.4), use_container_width=True)
 
-        with tab3:
-            if not df_stk.empty:
-                selected_item = st.selectbox("Select Item", df_stk['Item'].unique())
-                item_history = df_stk[df_stk['Item'] == selected_item]
-                st.dataframe(item_history[['Date', 'Type', 'Quantity']], use_container_width=True)
-                pdf_b = generate_pdf(item_history, f"Stock History: {selected_item}", ['Date', 'Type', 'Quantity'])
-                st.download_button(f"📥 Download {selected_item} PDF", pdf_b, f"{selected_item}_Stock.pdf", "application/pdf")
+            clean_df = m_df.drop(columns=['Month'], errors='ignore')
+            clean_df['Date'] = clean_df['Date'].dt.strftime('%d/%m/%Y')
+            st.dataframe(clean_df.iloc[::-1], use_container_width=True)
 
-    # --- 4. STAFF SALARY ---
-    elif page == "👨‍💼 Staff Salary":
-        st.title("👨‍💼 Staff Salary Management")
-        with st.expander("പുതിയ ശമ്പളം നൽകുക (Add New Salary)"):
-            with st.form("salary_form", clear_on_submit=True):
-                shop = st.selectbox("Select Shop", ["Shop 1", "Shop 2"])
-                emp_name = st.text_input("Employee Name")
-                sal_amt = st.number_input("Salary Amount", min_value=1.0)
-                sal_month = st.selectbox("Month", ["November 2026", "October 2026"])
-                if st.form_submit_button("PAY SALARY"):
-                    payload = {
-                        "entry.1044099436": datetime.now().strftime("%Y-%m-%d"),
-                        "entry.2013476337": f"[{shop}] Salary: {emp_name} ({sal_month})",
-                        "entry.1460982454": sal_amt,
-                        "entry.1221658767": 0
-                    }
-                    if submit_form(FORM_API, payload):
-                        st.success(f"✅ {emp_name}-ന്റെ ശമ്പളം വിജയകരമായി നൽകി!")
-                        st.cache_data.clear()
+    # --- DEBT TRACKER ---
+    elif page == "🤝 Debt Tracker":
+        st.title("🤝 Debt Tracker")
+        st.info("വരും ദിവസങ്ങളിൽ ഇതിലേക്ക് കൂടുതൽ ഫീച്ചറുകൾ വരും!")
 
-        st.divider()
-        st.subheader("📄 Salary History & PDF")
-        if not df_fin.empty:
-            sal_df = df_fin[df_fin['Item'].str.contains('Salary', case=False, na=False)].copy()
-            if not sal_df.empty:
-                sal_df['Employee'] = sal_df['Item'].apply(lambda x: x.split(':')[1].split('(')[0].strip() if ':' in x else "Unknown")
-                selected_emp = st.selectbox("Select Staff Member", sal_df['Employee'].unique())
-                emp_history = sal_df[sal_df['Employee'] == selected_emp]
-                st.dataframe(emp_history[['Date', 'Shop Name', 'Item', 'Debit']], use_container_width=True)
-                pdf_b = generate_pdf(emp_history, f"Salary Report: {selected_emp}", ['Date', 'Shop Name', 'Debit'])
-                st.download_button(f"📥 Download {selected_emp}'s Salary PDF", pdf_b, f"{selected_emp}_Salary.pdf", "application/pdf")
-            else:
-                st.info("No salary records found.")
-
-    # --- 5. AI AGENT (പുതിയത്) ---
-    elif page == "🤖 AI Agent":
-        st.title("🤖 PAICHI Business AI Agent")
-        st.write("ബിസിനസ്സിലെ കാര്യങ്ങൾ ചാറ്റ് വഴി ചെയ്യാം. (ഉദാ: 'Shop 1-ൽ 5000 സെയിൽസ് ഉണ്ടായി')")
-
-        if not GROQ_API_KEY:
-            st.error("Groq API Key ലഭ്യമല്ല!")
-
-        # ചാറ്റ് ഹിസ്റ്ററി കാണിക്കുക
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        if prompt := st.chat_input("Ask me to add finance, stock, or check balance..."):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
-
-            with st.spinner("AI ആലോചിക്കുന്നു..."):
+    # --- MY AI BUDDY ---
+    elif page == "🧠 My AI Buddy":
+        st.title("🧠 Your Personal AI Buddy")
+        if "buddy_messages" not in st.session_state: st.session_state.buddy_messages = []
+        for msg in st.session_state.buddy_messages:
+            with st.chat_message(msg["role"]): st.markdown(msg["content"])
+        user_input = st.chat_input("Ask me anything...", key="buddy_chat_box")
+        if user_input:
+            st.session_state.buddy_messages.append({"role": "user", "content": user_input})
+            with st.chat_message("user"): st.markdown(user_input)
+            with st.spinner("ആലോചിക്കുന്നു..."):
                 try:
                     client = Groq(api_key=GROQ_API_KEY)
-                    
-                    # സമയം കണക്കാക്കുന്നു
-                    utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-                    
-                    system_instruction = f"""
-                    നീ ഒരു വളരെ മികച്ച ബിസിനസ്സ് മാനേജർ AI ഏജന്റ് ആണ്. 
-                    നിലവിലെ മൊത്തം ബാലൻസ്: ₹{bal:,.2f}.
-                    യൂസർ എന്തെങ്കിലും ഫിനാൻസ് എൻട്രി ചേർക്കാൻ പറഞ്ഞാൽ add_finance എന്ന ടൂൾ ഉപയോഗിക്കുക.
-                    യൂസർ സ്റ്റോക്ക് കാര്യങ്ങൾ പറഞ്ഞാൽ add_stock എന്ന ടൂൾ ഉപയോഗിക്കുക.
-                    ലോകത്തിലെ എല്ലാ കാര്യങ്ങളെക്കുറിച്ചും നിനക്ക് അറിയാം, എന്ത് ചോദിച്ചാലും മലയാളത്തിൽ മറുപടി നൽകുക.
-                    """
-                    
-                    messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-5:]]
+                    system_prompt = "You are a helpful personal AI assistant for a 51-year-old Malayali. Answer their questions in Malayalam in a friendly way."
+                    messages = [{"role": "system", "content": system_prompt}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.buddy_messages[-4:]]
+                    response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=messages, max_tokens=1024)
+                    ai_reply = response.choices[0].message.content
+                    st.session_state.buddy_messages.append({"role": "assistant", "content": ai_reply})
+                    with st.chat_message("assistant"): st.markdown(ai_reply)
+                except Exception as e: st.error(f"Error: {e}")
 
-                    response = client.chat.completions.create(
-                        model="openai/gpt-oss-120b", 
-                        messages=messages_for_api,
-                        tools=tools,
-                        tool_choice="auto"
-                    )
+    # --- AI CHAT (AI Agent with Confirmation & Loop Fixed) ---
+    elif page == "🤖 AI Chat":
+        st.title("🤖 AI Agent & Assistant")
+        
+        if "messages" not in st.session_state: st.session_state.messages = []
 
-                    response_message = response.choices[0].message
-                    
-                    if response_message.tool_calls:
-                        for tool_call in response_message.tool_calls:
-                            if tool_call.function.name == "add_finance":
-                                args = json.loads(tool_call.function.arguments)
-                                res = execute_add_finance(args["shop"], args["item"], args["amount"], args["type"])
-                                if res == "Success":
-                                    ai_reply = f"✅ ചേട്ടാ, {args['shop']}-ൽ '{args['item']}' എന്നതിന് ₹{args['amount']} ({args['type']}) എൻട്രി ഇട്ടിട്ടുണ്ട്!"
-                                else:
-                                    ai_reply = "❌ എൻട്രി ഇടാൻ പറ്റിയില്ല."
-                                    
-                            elif tool_call.function.name == "add_stock":
-                                args = json.loads(tool_call.function.arguments)
-                                res = execute_add_stock(args["item_name"], args["qty"], args["stock_type"])
-                                if res == "Success":
-                                    ai_reply = f"✅ ചേട്ടാ, {args['item_name']}-ന്റെ {args['qty']} എണ്ണം ({args['stock_type']}) അപ്ഡേറ്റ് ചെയ്തിട്ടുണ്ട്!"
-                                else:
-                                    ai_reply = "❌ സ്റ്റോക്ക് അപ്ഡേറ്റ് ചെയ്യാൻ പറ്റിയില്ല."
-                    else:
-                        ai_reply = response_message.content
+        # കൺഫേം ചെയ്യാനുള്ള UI
+        if st.session_state.pending_entry:
+            st.warning(f"⏳ നിങ്ങൾ പറഞ്ഞത്: **{st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}**. ഇത് എൻട്രി ചെയ്യണോ?")
+            col1, col2 = st.columns(2)
+            if col1.button("✅ Yes, Save it", key="save_entry_btn"):
+                entry_data = st.session_state.pending_entry
+                st.session_state.pending_entry = None  
+                
+                result = add_new_entry(
+                    item=entry_data['item'], 
+                    amount=entry_data['amount'], 
+                    category=entry_data['category'], 
+                    type=entry_data['type'],
+                    entry_date=entry_data['date']
+                )
+                if "Success" in result:
+                    ai_msg = f"✅ ചേട്ടാ, {entry_data['item']}-ന് ₹{entry_data['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!"
+                else:
+                    ai_msg = f"❌ എൻട്രി ഇടാൻ പറ്റിയില്ല: {result}"
+                
+                st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                st.rerun()
+                
+            if col2.button("❌ No, Cancel", key="cancel_entry_btn"):
+                st.session_state.pending_entry = None
+                ai_msg = "ശരി ചേട്ടാ, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല."
+                st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                st.rerun()
 
-                    st.session_state.messages.append({"role": "assistant", "content": ai_reply})
-                    with st.chat_message("assistant"):
-                        st.markdown(ai_reply)
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]): st.markdown(message["content"])
+
+        v_raw = speech_to_text(language='ml', key='ai_voice_input')
+        prompt = st.chat_input("Ask anything or add expense...", key="ai_chat_box")
+        final_prompt = v_raw if v_raw else prompt
+
+        if final_prompt:
+            if st.session_state.get("last_processed_prompt") != final_prompt:
+                st.session_state.last_processed_prompt = final_prompt
+                st.session_state.messages.append({"role": "user", "content": final_prompt})
+                with st.chat_message("user"): st.markdown(final_prompt)
+
+                with st.spinner("AI ആലോചിക്കുന്നു..."):
+                    try:
+                        client = Groq(api_key=GROQ_API_KEY)
+                        system_instruction = f"നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. ബാലൻസ്: {bal} Rs. 'Item Amount' എന്ന രീതിയിൽ എഴുതിയാൽ ഉടൻ 'add_new_entry' എന്ന ടൂൾ ഉപയോഗിക്കുക."
                         
-                    # എൻട്രി വിജയിച്ചാൽ പേജ് റീഫ്രെഷ് ചെയ്യാൻ
-                    if response_message.tool_calls:
-                        st.rerun()
+                        messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
 
-                except Exception as e:
-                    st.error(f"AI Error: {str(e)}")
+                        response = client.chat.completions.create(
+                            model="openai/gpt-oss-120b", 
+                            messages=messages_for_api,
+                            tools=tools,
+                            tool_choice="auto",
+                            max_tokens=1024
+                        )
+
+                        response_message = response.choices[0].message
+                        
+                        if response_message.tool_calls:
+                            for tool_call in response_message.tool_calls:
+                                if tool_call.function.name == 'add_new_entry':
+                                    args = json.loads(tool_call.function.arguments)
+                                    st.session_state.pending_entry = {
+                                        "item": args.get("item"),
+                                        "amount": args.get("amount"),
+                                        "category": args.get("category", "Others"),
+                                        "type": args.get("type", "Debit"),
+                                        "date": args.get("date") or get_uae_time().strftime("%Y-%m-%d")
+                                    }
+                                    ai_msg = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ?"
+                                    st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                                    st.rerun()
+                                    
+                        elif response_message.content:
+                            ai_msg = response_message.content
+                            st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+                            st.rerun()
+
+                    except Exception as e:
+                        st.error(f"AI Error: {str(e)}")
