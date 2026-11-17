@@ -344,52 +344,72 @@ else:
                 except Exception as e: st.error(f"Error: {e}")
 
     # --- AI CHAT (AI Agent with Confirmation & Loop Fixed) ---
-    elif page == "🤖 AI Chat":
-        st.title("🤖 AI Agent & Assistant")
-        
-        if "messages" not in st.session_state: st.session_state.messages = []
+elif page == "🤖 AI Chat":
+    st.title("🤖 AI Agent & Assistant")
+    
+    if "messages" not in st.session_state: st.session_state.messages = []
 
-        # കൺഫേം ചെയ്യാനുള്ള UI (ഒരു തവണ മാത്രം എൻട്രി വരാൻ)
-        if st.session_state.pending_entry:
-            st.warning(f"⏳ നിങ്ങൾ പറഞ്ഞത്: **{st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}**. ഇത് എൻട്രി ചെയ്യണോ?")
-            col1, col2 = st.columns(2)
-            if col1.button("✅ Yes, Save it", key="save_entry_btn"):
+    # 1. പെൻഡിംഗ് എൻട്രി ഉണ്ടെങ്കിൽ ബട്ടൺ കാണിക്കുക
+    if st.session_state.pending_entry:
+        st.warning(f"⏳ നിങ്ങൾ പറഞ്ഞത്: **{st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}**. ഇത് എൻട്രി ചെയ്യണോ?")
+        col1, col2 = st.columns(2)
+        if col1.button("✅ Yes, Save it", key="save_entry_btn"):
+            entry_data = st.session_state.pending_entry
+            st.session_state.pending_entry = None  
+            
+            result = add_new_entry(
+                item=entry_data['item'], amount=entry_data['amount'], 
+                category=entry_data['category'], type=entry_data['type'], entry_date=entry_data['date']
+            )
+            ai_msg = f"✅ ചേട്ടാ, {entry_data['item']}-ന് ₹{entry_data['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!" if "Success" in result else f"❌ {result}"
+            st.session_state.messages.append({"role": "assistant", "content": ai_msg})
+            st.session_state.last_processed_prompt = None
+            st.rerun()
+            
+        if col2.button("❌ No, Cancel", key="cancel_entry_btn"):
+            st.session_state.pending_entry = None
+            st.session_state.messages.append({"role": "assistant", "content": "ശരി ചേട്ടാ, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല."})
+            st.session_state.last_processed_prompt = None
+            st.rerun()
+
+    # 2. ചാറ്റ് ഹിസ്റ്ററി കാണിക്കുക
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]): st.markdown(message["content"])
+
+    # 3. യൂസർ ഇൻപുട്ട് എടുക്കുക
+    v_raw = speech_to_text(language='ml', key='ai_voice_input')
+    prompt = st.chat_input("Ask anything or add expense...", key="ai_chat_box")
+    final_prompt = v_raw if v_raw else prompt
+
+    if final_prompt:
+        if st.session_state.get("last_processed_prompt") != final_prompt:
+            st.session_state.last_processed_prompt = final_prompt
+            
+            # യൂസർ 'yes' എന്ന് ടൈപ്പ് ചെയ്താൽ, പെൻഡിംഗ് എൻട്രി സേവ് ചെയ്യുക
+            if final_prompt.lower().strip() in ["yes", "y", "yep", "ya", "അതെ", "ശരി"] and st.session_state.pending_entry:
                 entry_data = st.session_state.pending_entry
-                st.session_state.pending_entry = None  
+                st.session_state.messages.append({"role": "user", "content": final_prompt})
+                st.session_state.pending_entry = None
                 
                 result = add_new_entry(
-                    item=entry_data['item'], 
-                    amount=entry_data['amount'], 
-                    category=entry_data['category'], 
-                    type=entry_data['type'],
-                    entry_date=entry_data['date']
+                    item=entry_data['item'], amount=entry_data['amount'], 
+                    category=entry_data['category'], type=entry_data['type'], entry_date=entry_data['date']
                 )
-                if "Success" in result:
-                    ai_msg = f"✅ ചേട്ടാ, {entry_data['item']}-ന് ₹{entry_data['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!"
-                else:
-                    ai_msg = f"❌ എൻട്രി ഇടാൻ പറ്റിയില്ല: {result}"
-                
+                ai_msg = f"✅ ചേട്ടാ, {entry_data['item']}-ന് ₹{entry_data['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!" if "Success" in result else f"❌ {result}"
                 st.session_state.messages.append({"role": "assistant", "content": ai_msg})
                 st.session_state.last_processed_prompt = None # ലൂപ്പ് ഒഴിവാക്കാൻ
                 st.rerun()
-                
-            if col2.button("❌ No, Cancel", key="cancel_entry_btn"):
+
+            # യൂസർ 'no' എന്ന് ടൈപ്പ് ചെയ്താൽ, ക്യാൻസൽ ചെയ്യുക
+            elif final_prompt.lower().strip() in ["no", "n", "nope", "അല്ല", "വേണ്ട"] and st.session_state.pending_entry:
+                st.session_state.messages.append({"role": "user", "content": final_prompt})
                 st.session_state.pending_entry = None
-                ai_msg = "ശരി ചേട്ടാ, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല."
-                st.session_state.messages.append({"role": "assistant", "content": ai_msg})
-                st.session_state.last_processed_prompt = None # ലൂപ്പ് ഒഴിവാക്കാൻ
+                st.session_state.messages.append({"role": "assistant", "content": "ശരി ചേട്ടാ, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല."})
+                st.session_state.last_processed_prompt = None
                 st.rerun()
 
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]): st.markdown(message["content"])
-
-        v_raw = speech_to_text(language='ml', key='ai_voice_input')
-        prompt = st.chat_input("Ask anything or add expense...", key="ai_chat_box")
-        final_prompt = v_raw if v_raw else prompt
-
-        if final_prompt:
-            if st.session_state.get("last_processed_prompt") != final_prompt:
-                st.session_state.last_processed_prompt = final_prompt
+            # അല്ലെങ്കിൽ പുതിയ എൻട്രിക്കായി AI-യെ വിളിക്കുക
+            else:
                 st.session_state.messages.append({"role": "user", "content": final_prompt})
                 with st.chat_message("user"): st.markdown(final_prompt)
 
@@ -402,11 +422,7 @@ else:
                         messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
 
                         response = client.chat.completions.create(
-                            model="openai/gpt-oss-120b", 
-                            messages=messages_for_api,
-                            tools=tools,
-                            tool_choice="auto",
-                            max_tokens=1024
+                            model="openai/gpt-oss-120b", messages=messages_for_api, tools=tools, tool_choice="auto", max_tokens=1024
                         )
 
                         response_message = response.choices[0].message
@@ -416,13 +432,11 @@ else:
                                 if tool_call.function.name == 'add_new_entry':
                                     args = json.loads(tool_call.function.arguments)
                                     st.session_state.pending_entry = {
-                                        "item": args.get("item"),
-                                        "amount": args.get("amount"),
-                                        "category": args.get("category", "Others"),
-                                        "type": args.get("type", "Debit"),
+                                        "item": args.get("item"), "amount": args.get("amount"),
+                                        "category": args.get("category", "Others"), "type": args.get("type", "Debit"),
                                         "date": args.get("date") or datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
                                     }
-                                    ai_msg = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ?"
+                                    ai_msg = f"ഞാൻ ഇത് എൻട്രി ചെയ്യാൻ പോകുന്നു: {st.session_state.pending_entry['item']} - ₹{st.session_state.pending_entry['amount']}. ശരിയാണോ? (Type 'yes' or 'no')"
                                     st.session_state.messages.append({"role": "assistant", "content": ai_msg})
                                     st.rerun()
                                     
