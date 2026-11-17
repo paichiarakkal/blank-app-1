@@ -419,10 +419,3 @@ else:
 
                     except Exception as e:
                         st.error(f"AI Error: {str(e)}")
-```
-
-പ്രധാന മാറ്റങ്ങൾ (Key Changes):
-
-1. from datetime import datetime, timezone, timedelta: timedelta കൂടി ഇമ്പോർട്ട് ചെയ്തിട്ടുണ്ട്.
-2. IST = timezone(timedelta(hours=5, minutes=30)): ഇന്ത്യൻ സമയം കൃത്യമായി എടുക്കാൻ ഒരു ഗ്ലോബൽ വേരിയബിൾ ഉണ്ടാക്കി.
-3. കോഡിൽ എല്ലായിടത്തും datetime.now() എന്ന് കൊടുത്തിരുന്നത് datetime.now(IST) എന്നാക്കി മാറ്റി. ഇതിലൂടെ ഇനി മുതൽ നിങ്ങൾക്ക് കൃത്യമായ ഇന്ത്യൻ സമയം ലഭിക്കും.
