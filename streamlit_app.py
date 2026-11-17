@@ -344,7 +344,8 @@ else:
                 except Exception as e: st.error(f"Error: {e}")
 
     # --- AI CHAT (AI Agent with Confirmation & Loop Fixed) ---
-elif page == "🤖 AI Chat":
+elif
+ page == "🤖 AI Chat":
     st.title("🤖 AI Agent & Assistant")
     
     if "messages" not in st.session_state: st.session_state.messages = []
