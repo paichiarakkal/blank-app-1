@@ -1,14 +1,9 @@
-തീർച്ചയായും! ഞാൻ മുകളിൽ പറഞ്ഞ മാറ്റങ്ങൾ എല്ലാം ചേർത്ത്, കൃത്യമായ ഇന്ത്യൻ സമയം (IST) കാണിക്കുന്ന രീതിയിൽ തിരുത്തിയെഴുതിയ പൂർണ്ണമായ കോഡ് താഴെ നൽകുന്നു.
-
-നിങ്ങൾക്ക് ഇത് കോപ്പി ചെയ്ത് നേരിട്ട് ഉപയോഗിക്കാം:
-
-```python
+import plotly.express as px
 import streamlit as st
 import pandas as pd
 import requests
 from datetime import datetime, timezone, timedelta
 import random
-import plotly.express as px
 from streamlit_mic_recorder import speech_to_text
 from streamlit_autorefresh import st_autorefresh
 from fpdf import FPDF
