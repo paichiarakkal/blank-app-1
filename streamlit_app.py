@@ -623,27 +623,111 @@ else:
     # --- CALENDAR ---
     elif page == "📅 Calendar":
         st.title("P&L Calendar View 📅")
+
+        st.markdown("""
+            <style>
+            .fc {
+                background-color: #ffffff !important;
+                color: #111111 !important;
+                padding: 12px;
+                border-radius: 14px;
+            }
+            .fc a, .fc-col-header-cell-cushion, .fc-daygrid-day-number {
+                color: #111111 !important;
+                text-decoration: none !important;
+                font-weight: 600 !important;
+            }
+            .fc-toolbar-title {
+                color: #111111 !important;
+                font-weight: 700 !important;
+            }
+            .fc-button-primary {
+                background-color: #e55353 !important;
+                border-color: #e55353 !important;
+                color: #ffffff !important;
+                font-weight: 700 !important;
+            }
+            .fc-event {
+                border: none !important;
+                border-radius: 3px !important;
+                font-size: 11px !important;
+                font-weight: 700 !important;
+                padding: 1px 3px !important;
+                margin-top: 2px !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
         if df.empty:
             st.info("No data available yet. Connect your Sheet CSV URL in Settings or add entries.")
         else:
-            df_cal = df.dropna(subset=['Date'])
-            summary = df_cal.groupby(df_cal['Date'].dt.strftime('%Y-%m-%d')).agg({'Debit': 'sum', 'Credit': 'sum'}).reset_index()
+            df_cal = df.dropna(subset=['Date']).copy()
+            df_cal['DayKey'] = df_cal['Date'].dt.strftime('%Y-%m-%d')
+
+            summary = (
+                df_cal.groupby('DayKey', as_index=False)
+                .agg({'Debit': 'sum', 'Credit': 'sum'})
+            )
+
             events = []
             for _, row in summary.iterrows():
-                if row['Credit'] > 0: events.append({"title": f" +₹{row['Credit']:,.0f}", "start": row['Date'], "backgroundColor": "#198754"})
-                if row['Debit'] > 0: events.append({"title": f" -₹{row['Debit']:,.0f}", "start": row['Date'], "backgroundColor": "#dc3545"})
+                if row['Debit'] > 0:
+                    events.append({
+                        "title": f"-₹{row['Debit']:,.0f}",
+                        "start": row['DayKey'],
+                        "backgroundColor": "#d9383a",
+                        "borderColor": "#d9383a",
+                        "textColor": "#ffffff"
+                    })
+                if row['Credit'] > 0:
+                    events.append({
+                        "title": f"+₹{row['Credit']:,.0f}",
+                        "start": row['DayKey'],
+                        "backgroundColor": "#2e8b57",
+                        "borderColor": "#2e8b57",
+                        "textColor": "#ffffff"
+                    })
 
-            cal_data = calendar(events=events, options={"headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth"}, "initialView": "dayGridMonth"}, key="pnl_calendar")
+            calendar_options = {
+                "headerToolbar": {
+                    "left": "prev,next today",
+                    "center": "title",
+                    "right": "dayGridMonth"
+                },
+                "initialView": "dayGridMonth",
+                "height": "auto",
+                "dayMaxEvents": True
+            }
 
-            if cal_data and cal_data.get("callback") == "eventClick":
-                event_data = cal_data.get("eventClick", {}).get("event", {})
-                dt_click = event_data.get("start", "").split("T")[0]
-                if dt_click:
-                    st.markdown("---"); st.subheader(f"📋 Details for {pd.to_datetime(dt_click).strftime('%d %B %Y')}")
-                    day_df = df_cal[df_cal['Date'].dt.strftime('%Y-%m-%d') == dt_click].copy()
-                    if not day_df.empty:
-                        day_df['Date'] = day_df['Date'].dt.strftime('%d/%m/%Y')
-                        st.dataframe(day_df[['Date', 'Item', 'Debit', 'Credit']], use_container_width=True)
+            cal_data = calendar(
+                events=events,
+                options=calendar_options,
+                key="pnl_calendar_view"
+            )
+
+            selected_date = None
+            if cal_data:
+                if cal_data.get("callback") == "eventClick":
+                    ev = cal_data.get("eventClick", {}).get("event", {})
+                    selected_date = ev.get("start", "").split("T")[0]
+                elif cal_data.get("callback") == "dateClick":
+                    dt_obj = cal_data.get("dateClick", {}).get("date", "")
+                    selected_date = dt_obj.split("T")[0]
+
+            if selected_date:
+                st.markdown("---")
+                try:
+                    pretty_dt = pd.to_datetime(selected_date).strftime('%d %B %Y')
+                except Exception:
+                    pretty_dt = selected_date
+
+                st.subheader(f"📋 Details for {pretty_dt}")
+                day_df = df_cal[df_cal['DayKey'] == selected_date].copy()
+                if not day_df.empty:
+                    day_df['Date'] = day_df['Date'].dt.strftime('%d/%m/%Y')
+                    st.dataframe(day_df[['Date', 'Item', 'Debit', 'Credit']], use_container_width=True)
+                else:
+                    st.info("ഈ ദിവസത്തിൽ എൻട്രികൾ ഒന്നും ഇല്ല.")
 
     # --- REPORT & HISTORY ---
     elif (page == "📊 Report" or page == "🔍 History"):
