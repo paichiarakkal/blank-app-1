@@ -10,6 +10,7 @@ from fpdf import FPDF
 import re
 import json
 import time
+import hashlib
 from groq import Groq
 from streamlit_calendar import calendar
 from twilio.rest import Client
@@ -18,9 +19,6 @@ from twilio.rest import Client
 st.set_page_config(page_title="PAICHI EXPENSES", layout="wide")
 
 # --- CONFIG & SETTINGS ---
-CSV_URL = st.secrets.get("GOOGLE_SHEET_CSV", "")
-DEBT_CSV_URL = st.secrets.get("GOOGLE_SHEET_DEBT_CSV", "")
-WEB_APP_URL = st.secrets.get("APPS_SCRIPT_URL", "")
 WA_PHONE = st.secrets.get("DEFAULT_WA_PHONE", "")
 BG_IMAGE_URL = "https://raw.githubusercontent.com/paichiarakkal/paichiarakkal/main/profile.jpg"
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
@@ -66,6 +64,7 @@ st.markdown(f"""
 
 if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user = False, ""
 if 'user_accounts' not in st.session_state: st.session_state.user_accounts = {}
+if 'user_profiles' not in st.session_state: st.session_state.user_profiles = {}
 if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Low balance alert"
 if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
 if "last_processed_prompt" not in st.session_state: st.session_state.last_processed_prompt = None
@@ -75,13 +74,42 @@ if "user_sheet_url" not in st.session_state: st.session_state.user_sheet_url = "
 if "user_sheet_csv_url" not in st.session_state: st.session_state.user_sheet_csv_url = ""
 
 # --- HELPER FUNCTIONS ---
+def hash_password(pwd: str) -> str:
+    return hashlib.sha256(pwd.encode("utf-8")).hexdigest()
+
+def save_user_sheet_links(username: str, web_app_url: str, csv_url: str):
+    u_key = (username or "").strip().lower()
+    clean_web = (web_app_url or "").strip()
+    clean_csv = (csv_url or "").strip()
+    st.session_state.user_sheet_url = clean_web
+    st.session_state.user_sheet_csv_url = clean_csv
+    if u_key:
+        profiles = st.session_state.user_profiles
+        existing = profiles.get(u_key, {})
+        profiles[u_key] = {
+            "sheet_url": clean_web if clean_web else existing.get("sheet_url", ""),
+            "csv_url": clean_csv if clean_csv else existing.get("csv_url", "")
+        }
+        st.session_state.user_sheet_url = profiles[u_key]["sheet_url"]
+        st.session_state.user_sheet_csv_url = profiles[u_key]["csv_url"]
+
+def sync_active_user_profile(username: str):
+    u_key = (username or "").strip().lower()
+    profile = st.session_state.user_profiles.get(u_key, {})
+    st.session_state.user_sheet_url = profile.get("sheet_url", "")
+    st.session_state.user_sheet_csv_url = profile.get("csv_url", "")
+
 def get_active_web_app_url():
-    custom_u = st.session_state.get("user_sheet_url", "").strip()
-    return custom_u if custom_u else ""
+    u_key = st.session_state.get("user", "").strip().lower()
+    profile_url = st.session_state.user_profiles.get(u_key, {}).get("sheet_url", "").strip()
+    session_url = st.session_state.get("user_sheet_url", "").strip()
+    return session_url or profile_url
 
 def get_active_csv_url():
-    custom_c = st.session_state.get("user_sheet_csv_url", "").strip()
-    return custom_c if custom_c else ""
+    u_key = st.session_state.get("user", "").strip().lower()
+    profile_csv = st.session_state.user_profiles.get(u_key, {}).get("csv_url", "").strip()
+    session_csv = st.session_state.get("user_sheet_csv_url", "").strip()
+    return session_csv or profile_csv
 
 def send_whatsapp_auto(msg):
     try:
@@ -102,14 +130,14 @@ def parse_mixed_dates(date_series):
         parsed.append(dt)
     return pd.Series(parsed)
 
-@st.cache_data(ttl=10)
-def load_data(active_csv_url=""):
+@st.cache_data(ttl=5)
+def load_data(active_csv_url="", cache_buster=0):
     try:
-        target_csv = active_csv_url.strip()
+        target_csv = (active_csv_url or "").strip()
         if not target_csv:
             return pd.DataFrame(columns=['Date', 'Item', 'Debit', 'Credit'])
         sep = "&" if "?" in target_csv else "?"
-        df = pd.read_csv(f"{target_csv}{sep}r={random.randint(1,999)}")
+        df = pd.read_csv(f"{target_csv}{sep}r={random.randint(1,999999)}_{cache_buster}")
         df.columns = df.columns.str.strip()
         df['Date'] = parse_mixed_dates(df['Date'])
         df['Debit'] = pd.to_numeric(df['Debit'], errors='coerce').fillna(0)
@@ -118,18 +146,22 @@ def load_data(active_csv_url=""):
     except Exception:
         return pd.DataFrame(columns=['Date', 'Item', 'Debit', 'Credit'])
 
-@st.cache_data(ttl=10)
-def load_debts_data():
+@st.cache_data(ttl=5)
+def load_debts_data(active_csv_url="", cache_buster=0):
     try:
-        if not DEBT_CSV_URL:
+        target_csv = (active_csv_url or "").strip()
+        if not target_csv:
             return pd.DataFrame(columns=['ID', 'Name', 'Type', 'Amount', 'Date', 'Status', 'Sender'])
-        sep = "&" if "?" in DEBT_CSV_URL else "?"
-        df = pd.read_csv(f"{DEBT_CSV_URL}{sep}r={random.randint(1,999)}")
+        sep = "&" if "?" in target_csv else "?"
+        df = pd.read_csv(f"{target_csv}{sep}r={random.randint(1,999999)}_{cache_buster}")
         df.columns = df.columns.str.strip()
         df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
         return df
     except Exception:
         return pd.DataFrame(columns=['ID', 'Name', 'Type', 'Amount', 'Date', 'Status', 'Sender'])
+
+def refresh_user_sheet_cache():
+    st.cache_data.clear()
 
 def create_pdf(df):
     try:
@@ -175,6 +207,7 @@ def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None
         }
         if target_url:
             requests.post(target_url, json=payload, timeout=10)
+            refresh_user_sheet_cache()
         send_whatsapp_auto(f"✅ *AI Entry Added*\n📝 Item: {item}\n💰 Amt: ₹{amount}")
         return f"Success: {item} - ₹{amount} ({type})"
     except Exception as e:
@@ -201,6 +234,8 @@ def add_multiple_entries(entries_list):
             if target_url:
                 requests.post(target_url, json=payload, timeout=10)
             results.append(f'{item} - ₹{amount}')
+        if target_url:
+            refresh_user_sheet_cache()
         summary_text = '\n'.join([f'• {r}' for r in results])
         send_whatsapp_auto(f'✅ *AI Multi-Entries Added*\n{summary_text}')
         return f'Success: Added {len(results)} items.'
@@ -222,6 +257,7 @@ def add_debt_via_ai(name, type, amount, date=None):
         }
         if target_url:
             requests.post(target_url, json=payload, timeout=10)
+            refresh_user_sheet_cache()
         send_whatsapp_auto(f"🤝 *AI Debt Added*\n👤 Person: {name}\n📌 Type: {type}\n💰 Amt: ₹{amount}")
         return f"Success: {type} - {name} - ₹{amount}"
     except Exception as e:
@@ -292,63 +328,89 @@ tools = [
     }
 ]
 
-# --- 🔒 PUBLIC LOGIN SCREEN ---
+# --- 🔒 PUBLIC LOGIN SCREEN (Bank-style custom password + Confirm Password) ---
 if not st.session_state.auth:
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
         st.markdown('<div class="login-card">', unsafe_allow_html=True)
         st.subheader("🔐 EXPENSE AI LOGIN")
-        u_input = st.text_input("👤 Username / Email", placeholder="Enter your name or email").strip().lower()
-        pin = st.text_input("🔑 Enter 4-Digit PIN", type="password", max_chars=4)
+        u_input = st.text_input("👤 Username / Email", placeholder="Enter your username or email").strip().lower()
+        existing_profile = st.session_state.user_profiles.get(u_input, {})
+        password = st.text_input("🔑 Password", type="password", placeholder="Create or enter your password")
+        confirm_password = st.text_input("🔒 Confirm Password", type="password", placeholder="Re-enter password for new account")
+
         with st.expander("⚙️ Custom Google Sheet Connection (Optional)"):
             custom_sheet_input = st.text_input(
                 "📄 User Sheet Web App URL",
-                value=st.session_state.user_sheet_url,
+                value=existing_profile.get("sheet_url", st.session_state.user_sheet_url),
                 placeholder="https://script.google.com/macros/s/.../exec"
             )
             custom_csv_input = st.text_input(
                 "📊 User Sheet CSV URL",
-                value=st.session_state.user_sheet_csv_url,
+                value=existing_profile.get("csv_url", st.session_state.user_sheet_csv_url),
                 placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"
             )
+
         if st.button("UNLOCK APP 🔓"):
             if not u_input:
                 st.error("❌ Please enter a username!")
-            elif len(pin) < 4:
-                st.error("❌ Please enter a 4-digit PIN!")
+            elif not password:
+                st.error("❌ Please enter a password!")
             else:
+                pwd_hash = hash_password(password)
                 accounts = st.session_state.user_accounts
+
                 if u_input not in accounts:
-                    accounts[u_input] = pin
-                    st.session_state.user_sheet_url = custom_sheet_input.strip()
-                    st.session_state.user_sheet_csv_url = custom_csv_input.strip()
-                    st.session_state.auth, st.session_state.user = True, u_input
-                    st.rerun()
-                elif accounts[u_input] == pin:
-                    st.session_state.user_sheet_url = custom_sheet_input.strip()
-                    st.session_state.user_sheet_csv_url = custom_csv_input.strip()
-                    st.session_state.auth, st.session_state.user = True, u_input
-                    st.rerun()
+                    if not confirm_password:
+                        st.error("❌ Please confirm your password!")
+                    elif password != confirm_password:
+                        st.error("❌ Passwords do not match!")
+                    else:
+                        accounts[u_input] = pwd_hash
+                        save_user_sheet_links(u_input, custom_sheet_input, custom_csv_input)
+                        refresh_user_sheet_cache()
+                        st.session_state.auth, st.session_state.user = True, u_input
+                        st.rerun()
                 else:
-                    st.error("❌ Incorrect PIN!")
+                    if confirm_password and password != confirm_password:
+                        st.error("❌ Passwords do not match!")
+                    elif accounts[u_input] == pwd_hash:
+                        save_user_sheet_links(u_input, custom_sheet_input, custom_csv_input)
+                        refresh_user_sheet_cache()
+                        st.session_state.auth, st.session_state.user = True, u_input
+                        st.rerun()
+                    else:
+                        st.error("❌ Incorrect Password!")
         st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-    df = load_data(get_active_csv_url())
+    sync_active_user_profile(st.session_state.user)
+    active_csv = get_active_csv_url()
+    active_web = get_active_web_app_url()
+    df = load_data(active_csv)
     t_in, t_out = (df['Credit'].sum(), df['Debit'].sum()) if not df.empty else (0.0, 0.0)
     bal = t_in - t_out
 
     with st.sidebar.expander("⚙️ Settings"):
-        st.session_state.user_sheet_url = st.text_input(
+        updated_web = st.text_input(
             "📄 Target Sheet Web App URL",
-            value=st.session_state.user_sheet_url,
+            value=active_web,
             placeholder="https://script.google.com/macros/s/.../exec"
         ).strip()
-        st.session_state.user_sheet_csv_url = st.text_input(
+        updated_csv = st.text_input(
             "📊 Target Sheet CSV URL",
-            value=st.session_state.user_sheet_csv_url,
+            value=active_csv,
             placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"
         ).strip()
+        if updated_web != active_web or updated_csv != active_csv:
+            save_user_sheet_links(st.session_state.user, updated_web, updated_csv)
+            refresh_user_sheet_cache()
+            st.rerun()
+
+        if st.button("🔄 Sync From My Sheet"):
+            refresh_user_sheet_cache()
+            st.rerun()
+
         st.session_state.custom_alert_text = st.text_area("Alert Message", value=st.session_state.custom_alert_text)
         st.session_state.low_limit = st.number_input("Low Balance Limit (₹)", value=st.session_state.low_limit)
 
@@ -360,6 +422,8 @@ else:
 
     # --- DASHBOARD ---
     if page == "🏠 Dashboard":
+        if not active_csv:
+            st.info("ℹ️ നിങ്ങളുടെ Google Sheet CSV URL ഇതുവരെ നൽകിയിട്ടില്ല. ഇടതുവശത്തെ **Settings**-ൽ Sheet CSV URL നൽകുമ്പോൾ നിങ്ങളുടെ ഷീറ്റിലെ ഡാറ്റ ഇവിടെ വരും.")
         if bal < st.session_state.low_limit:
             st.markdown(f'<div class="alert-banner">⚠️ ബാലൻസ് കുറവാണ്: {st.session_state.custom_alert_text} (₹{bal:,.2f})!</div>', unsafe_allow_html=True)
 
@@ -422,6 +486,7 @@ else:
                         }
                         if target_url:
                             requests.post(target_url, json=payload, timeout=10)
+                            refresh_user_sheet_cache()
                         send_whatsapp_auto(f"✅ *Expense Entry*\n📝 {it}\n💰 ₹{am}")
 
                         st.session_state.entry_saved_flag = True
@@ -436,7 +501,7 @@ else:
     elif page == "📅 Calendar":
         st.title("P&L Calendar View 📅")
         if df.empty:
-            st.info("No data available yet. Connect a CSV URL in Settings or add entries.")
+            st.info("No data available yet. Connect your Sheet CSV URL in Settings or add entries.")
         else:
             df_cal = df.dropna(subset=['Date'])
             summary = df_cal.groupby(df_cal['Date'].dt.strftime('%Y-%m-%d')).agg({'Debit': 'sum', 'Credit': 'sum'}).reset_index()
@@ -500,7 +565,7 @@ else:
     # --- DEBT TRACKER ---
     elif page == "🤝 Debt Tracker":
         st.title("🤝 Debt Tracker (കടം കണക്കുകൾ)")
-        df_debts = load_debts_data()
+        df_debts = load_debts_data(active_csv)
 
         tab1, tab2, tab3 = st.tabs(["📋 View All Debts", "➕ Add New Debt", "⚙️ Settlement History"])
 
@@ -537,6 +602,7 @@ else:
                                 payload = {"action": "settle_debt", "id": debt['ID']}
                                 if target_url:
                                     requests.post(target_url, json=payload, timeout=10)
+                                    refresh_user_sheet_cache()
                                 st.success(f"{debt['Name']}-ന്റെ കണക്ക് തീർപ്പാക്കി!")
                                 time.sleep(1)
                                 st.rerun()
@@ -568,6 +634,7 @@ else:
                             }
                             if target_url:
                                 requests.post(target_url, json=payload, timeout=10)
+                                refresh_user_sheet_cache()
                             send_whatsapp_auto(f"🤝 *New Debt Saved*\n👤 Person: {d_name}\n📌 Type: {d_type}\n💰 Amt: ₹{d_amount}")
 
                             st.success("Debt saved successfully! ✅")
