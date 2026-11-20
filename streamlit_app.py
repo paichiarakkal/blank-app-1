@@ -76,8 +76,13 @@ if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
 if "last_processed_prompt" not in st.session_state: st.session_state.last_processed_prompt = None
 if "pending_entry" not in st.session_state: st.session_state.pending_entry = None
 if "entry_saved_flag" not in st.session_state: st.session_state.entry_saved_flag = False
+if "user_sheet_url" not in st.session_state: st.session_state.user_sheet_url = ""
 
 # --- HELPER FUNCTIONS ---
+def get_active_web_app_url():
+    custom_u = st.session_state.get("user_sheet_url", "").strip()
+    return custom_u if custom_u else WEB_APP_URL
+
 def send_whatsapp_auto(msg):
     try:
         account_sid = st.secrets.get("TWILIO_ACCOUNT_SID", "")
@@ -154,10 +159,11 @@ def create_pdf(df):
 
 def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None):
     try:
+        target_url = get_active_web_app_url()
         if not entry_date: 
             entry_date = datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
         payload = {"item": item, "amount": amount, "category": category, "type": type, "date": entry_date, "sender": st.session_state.user.capitalize()}
-        requests.post(WEB_APP_URL, json=payload, timeout=10)
+        requests.post(target_url, json=payload, timeout=10)
         send_whatsapp_auto(f"✅ *AI Entry Added*\n📝 Item: {item}\n💰 Amt: ₹{amount}")
         return f"Success: {item} - ₹{amount} ({type})"
     except Exception as e: 
@@ -166,6 +172,7 @@ def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None
 def add_multiple_entries(entries_list):
     results = []
     try:
+        target_url = get_active_web_app_url()
         for entry in entries_list:
             item = entry.get('item', 'Unknown')
             amount = entry.get('amount', 0)
@@ -174,7 +181,7 @@ def add_multiple_entries(entries_list):
             entry_date = entry.get('date', datetime.now(GST).strftime('%Y-%m-%d %H:%M:%S'))
             
             payload = {"item": item, "amount": amount, "category": category, "type": entry_type, "date": entry_date, "sender": st.session_state.user.capitalize()}
-            requests.post(WEB_APP_URL, json=payload, timeout=10)
+            requests.post(target_url, json=payload, timeout=10)
             results.append(f'{item} - ₹{amount}')
         summary_text = '\n'.join([f'• {r}' for r in results])
         send_whatsapp_auto(f'✅ *AI Multi-Entries Added*\n{summary_text}')
@@ -184,10 +191,11 @@ def add_multiple_entries(entries_list):
 
 def add_debt_via_ai(name, type, amount, date=None):
     try:
+        target_url = get_active_web_app_url()
         if not date: 
             date = datetime.now(GST).strftime("%Y-%m-%d")
         payload = {"action": "add_debt", "name": name, "type": type, "amount": amount, "date": date, "sender": st.session_state.user.capitalize()}
-        requests.post(WEB_APP_URL, json=payload, timeout=10)
+        requests.post(target_url, json=payload, timeout=10)
         send_whatsapp_auto(f"🤝 *AI Debt Added*\n👤 Person: {name}\n📌 Type: {type}\n💰 Amt: ₹{amount}")
         return f"Success: {type} - {name} - ₹{amount}"
     except Exception as e: 
@@ -266,8 +274,14 @@ if not st.session_state.auth:
         st.subheader("🔐 PAICHI EXPENSES LOGIN")
         u = st.selectbox("👤 Select User", ["faisal", "shabana", "admin"]).lower()
         pin = st.text_input("🔑 Enter 4-Digit PIN", type="password", max_chars=4)
+        custom_sheet_input = st.text_input(
+            "📄 User Sheet Web App URL (Demo/Test - Optional)",
+            value=st.session_state.user_sheet_url,
+            placeholder="https://script.google.com/macros/s/.../exec"
+        )
         if st.button("UNLOCK APP 🔓"):
             if USER_PINS.get(u) == pin:
+                st.session_state.user_sheet_url = custom_sheet_input.strip()
                 st.session_state.auth, st.session_state.user = True, u
                 st.rerun()
             else: 
@@ -281,6 +295,11 @@ else:
     
     if st.session_state.user != "shabana":
         with st.sidebar.expander("⚙️ Settings"):
+            st.session_state.user_sheet_url = st.text_input(
+                "📄 Target Sheet Web App URL",
+                value=st.session_state.user_sheet_url,
+                placeholder="https://script.google.com/macros/s/.../exec"
+            ).strip()
             st.session_state.custom_alert_text = st.text_area("Alert Message", value=st.session_state.custom_alert_text)
             st.session_state.low_limit = st.number_input("Low Balance Limit (₹)", value=st.session_state.low_limit)
     
@@ -344,8 +363,9 @@ else:
                 try:
                     am = float(am_str.strip().replace(',', ''))
                     if not st.session_state.entry_saved_flag:
+                        target_url = get_active_web_app_url()
                         payload = {"item": it, "amount": am, "category": cat, "type": ty, "date": datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S"), "sender": st.session_state.user.capitalize()}
-                        requests.post(WEB_APP_URL, json=payload, timeout=10)
+                        requests.post(target_url, json=payload, timeout=10)
                         send_whatsapp_auto(f"✅ *Paichi Entry*\n📝 {it}\n💰 ₹{am}")
                         
                         st.session_state.entry_saved_flag = True
@@ -451,8 +471,9 @@ else:
                         
                         if c5.button("✅ Settle", key=f"settle_cloud_{debt['ID']}"):
                             try:
+                                target_url = get_active_web_app_url()
                                 payload = {"action": "settle_debt", "id": debt['ID']}
-                                requests.post(WEB_APP_URL, json=payload, timeout=10)
+                                requests.post(target_url, json=payload, timeout=10)
                                 st.success(f"{debt['Name']}-ന്റെ കണക്ക് തീർപ്പാക്കി!")
                                 time.sleep(1)
                                 st.rerun()
@@ -473,6 +494,7 @@ else:
                         st.error("தயவுசெய்து പേര് നൽകുക!")
                     else:
                         try:
+                            target_url = get_active_web_app_url()
                             payload = {
                                 "action": "add_debt",
                                 "name": d_name.strip(),
@@ -481,7 +503,7 @@ else:
                                 "date": str(d_date),
                                 "sender": st.session_state.user.capitalize()
                             }
-                            requests.post(WEB_APP_URL, json=payload, timeout=10)
+                            requests.post(target_url, json=payload, timeout=10)
                             send_whatsapp_auto(f"🤝 *New Debt Saved*\n👤 Person: {d_name}\n📌 Type: {d_type}\n💰 Amt: ₹{d_amount}")
 
                             st.success("Debt successfully saved to Google Sheet! ✅")
