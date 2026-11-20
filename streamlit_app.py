@@ -15,19 +15,13 @@ from streamlit_calendar import calendar
 from twilio.rest import Client
 
 # --- STREAMLIT UI SETUP ---
-st.set_page_config(page_title="PAICHI EXPENSES v3.0", layout="wide")
+st.set_page_config(page_title="PAICHI EXPENSES", layout="wide")
 
 # --- CONFIG & SETTINGS ---
 CSV_URL = st.secrets.get("GOOGLE_SHEET_CSV", "")
 DEBT_CSV_URL = st.secrets.get("GOOGLE_SHEET_DEBT_CSV", "")
 WEB_APP_URL = st.secrets.get("APPS_SCRIPT_URL", "")
-WA_PHONE = "971551347989"
-
-USER_PINS = {
-    "faisal": st.secrets.get("PIN_FAISAL", ""),
-    "shabana": st.secrets.get("PIN_SHABANA", ""),
-    "admin": st.secrets.get("PIN_ADMIN", "")
-}
+WA_PHONE = st.secrets.get("DEFAULT_WA_PHONE", "")
 BG_IMAGE_URL = "https://raw.githubusercontent.com/paichiarakkal/paichiarakkal/main/profile.jpg"
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
@@ -71,61 +65,70 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user = False, ""
-if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Shop kuri book"
+if 'user_accounts' not in st.session_state: st.session_state.user_accounts = {}
+if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Low balance alert"
 if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
 if "last_processed_prompt" not in st.session_state: st.session_state.last_processed_prompt = None
 if "pending_entry" not in st.session_state: st.session_state.pending_entry = None
 if "entry_saved_flag" not in st.session_state: st.session_state.entry_saved_flag = False
 if "user_sheet_url" not in st.session_state: st.session_state.user_sheet_url = ""
+if "user_sheet_csv_url" not in st.session_state: st.session_state.user_sheet_csv_url = ""
 
 # --- HELPER FUNCTIONS ---
 def get_active_web_app_url():
     custom_u = st.session_state.get("user_sheet_url", "").strip()
-    return custom_u if custom_u else WEB_APP_URL
+    return custom_u if custom_u else ""
+
+def get_active_csv_url():
+    custom_c = st.session_state.get("user_sheet_csv_url", "").strip()
+    return custom_c if custom_c else ""
 
 def send_whatsapp_auto(msg):
     try:
         account_sid = st.secrets.get("TWILIO_ACCOUNT_SID", "")
         auth_token = st.secrets.get("TWILIO_AUTH_TOKEN", "")
-        if account_sid and auth_token:
+        if account_sid and auth_token and WA_PHONE:
             client = Client(account_sid, auth_token)
             client.messages.create(from_='whatsapp:+14155238886', body=msg, to=f'whatsapp:+{WA_PHONE}')
-    except Exception: 
-        pass 
+    except Exception:
+        pass
 
 def parse_mixed_dates(date_series):
     parsed = []
     for val in date_series:
         dt = pd.to_datetime(str(val).strip(), errors='coerce')
-        if not pd.isna(dt) and dt.year == 2026 and dt.month < 4: 
-            dt = dt.replace(year=2026)
-        if pd.isna(dt): 
+        if pd.isna(dt):
             dt = pd.to_datetime(str(val).strip(), dayfirst=True, errors='coerce')
         parsed.append(dt)
     return pd.Series(parsed)
 
 @st.cache_data(ttl=10)
-def load_data():
+def load_data(active_csv_url=""):
     try:
-        if not CSV_URL: return pd.DataFrame()
-        df = pd.read_csv(f"{CSV_URL}&r={random.randint(1,999)}")
+        target_csv = active_csv_url.strip()
+        if not target_csv:
+            return pd.DataFrame(columns=['Date', 'Item', 'Debit', 'Credit'])
+        sep = "&" if "?" in target_csv else "?"
+        df = pd.read_csv(f"{target_csv}{sep}r={random.randint(1,999)}")
         df.columns = df.columns.str.strip()
         df['Date'] = parse_mixed_dates(df['Date'])
         df['Debit'] = pd.to_numeric(df['Debit'], errors='coerce').fillna(0)
         df['Credit'] = pd.to_numeric(df['Credit'], errors='coerce').fillna(0)
         return df
-    except Exception: 
-        return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame(columns=['Date', 'Item', 'Debit', 'Credit'])
 
 @st.cache_data(ttl=10)
 def load_debts_data():
     try:
-        if not DEBT_CSV_URL: return pd.DataFrame(columns=['ID', 'Name', 'Type', 'Amount', 'Date', 'Status', 'Sender'])
-        df = pd.read_csv(f"{DEBT_CSV_URL}&r={random.randint(1,999)}")
+        if not DEBT_CSV_URL:
+            return pd.DataFrame(columns=['ID', 'Name', 'Type', 'Amount', 'Date', 'Status', 'Sender'])
+        sep = "&" if "?" in DEBT_CSV_URL else "?"
+        df = pd.read_csv(f"{DEBT_CSV_URL}{sep}r={random.randint(1,999)}")
         df.columns = df.columns.str.strip()
         df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
         return df
-    except Exception: 
+    except Exception:
         return pd.DataFrame(columns=['ID', 'Name', 'Type', 'Amount', 'Date', 'Status', 'Sender'])
 
 def create_pdf(df):
@@ -133,7 +136,7 @@ def create_pdf(df):
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", 'B', 14)
-        pdf.cell(190, 10, txt="PAICHI FINANCE REPORT", ln=True, align='C')
+        pdf.cell(190, 10, txt="FINANCE REPORT", ln=True, align='C')
         pdf.ln(10)
         pdf.set_font("Arial", 'B', 10)
         widths = {"Date": 30, "Item": 85, "Debit": 35, "Credit": 35}
@@ -154,19 +157,27 @@ def create_pdf(df):
             for w in widths.values(): pdf.cell(w, h, txt="", border=1)
             pdf.set_y(y_start + h)
         return bytes(pdf.output())
-    except Exception: 
+    except Exception:
         return None
 
 def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None):
     try:
         target_url = get_active_web_app_url()
-        if not entry_date: 
+        if not entry_date:
             entry_date = datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
-        payload = {"item": item, "amount": amount, "category": category, "type": type, "date": entry_date, "sender": st.session_state.user.capitalize()}
-        requests.post(target_url, json=payload, timeout=10)
+        payload = {
+            "item": item,
+            "amount": amount,
+            "category": category,
+            "type": type,
+            "date": entry_date,
+            "sender": st.session_state.user.capitalize()
+        }
+        if target_url:
+            requests.post(target_url, json=payload, timeout=10)
         send_whatsapp_auto(f"✅ *AI Entry Added*\n📝 Item: {item}\n💰 Amt: ₹{amount}")
         return f"Success: {item} - ₹{amount} ({type})"
-    except Exception as e: 
+    except Exception as e:
         return f"Error: {str(e)}"
 
 def add_multiple_entries(entries_list):
@@ -179,169 +190,206 @@ def add_multiple_entries(entries_list):
             category = entry.get('category', 'Others')
             entry_type = entry.get('type', 'Debit')
             entry_date = entry.get('date', datetime.now(GST).strftime('%Y-%m-%d %H:%M:%S'))
-            
-            payload = {"item": item, "amount": amount, "category": category, "type": entry_type, "date": entry_date, "sender": st.session_state.user.capitalize()}
-            requests.post(target_url, json=payload, timeout=10)
+            payload = {
+                "item": item,
+                "amount": amount,
+                "category": category,
+                "type": entry_type,
+                "date": entry_date,
+                "sender": st.session_state.user.capitalize()
+            }
+            if target_url:
+                requests.post(target_url, json=payload, timeout=10)
             results.append(f'{item} - ₹{amount}')
         summary_text = '\n'.join([f'• {r}' for r in results])
         send_whatsapp_auto(f'✅ *AI Multi-Entries Added*\n{summary_text}')
         return f'Success: Added {len(results)} items.'
-    except Exception as e: 
+    except Exception as e:
         return f'Error: {str(e)}'
 
 def add_debt_via_ai(name, type, amount, date=None):
     try:
         target_url = get_active_web_app_url()
-        if not date: 
+        if not date:
             date = datetime.now(GST).strftime("%Y-%m-%d")
-        payload = {"action": "add_debt", "name": name, "type": type, "amount": amount, "date": date, "sender": st.session_state.user.capitalize()}
-        requests.post(target_url, json=payload, timeout=10)
+        payload = {
+            "action": "add_debt",
+            "name": name,
+            "type": type,
+            "amount": amount,
+            "date": date,
+            "sender": st.session_state.user.capitalize()
+        }
+        if target_url:
+            requests.post(target_url, json=payload, timeout=10)
         send_whatsapp_auto(f"🤝 *AI Debt Added*\n👤 Person: {name}\n📌 Type: {type}\n💰 Amt: ₹{amount}")
         return f"Success: {type} - {name} - ₹{amount}"
-    except Exception as e: 
+    except Exception as e:
         return f"Error: {str(e)}"
 
 tools = [
     {
-        "type": "function", 
+        "type": "function",
         "function": {
-            "name": "add_new_entry", 
-            "description": "Add a single expense or income", 
+            "name": "add_new_entry",
+            "description": "Add a single expense or income",
             "parameters": {
-                "type": "object", 
+                "type": "object",
                 "properties": {
-                    "item": {"type": "string"}, 
-                    "amount": {"type": "number"}, 
-                    "category": {"type": "string", "description": "Food, Shop, Fish, Travel, Rent, Others"}, 
-                    "type": {"type": "string", "enum": ["Debit", "Credit"]}, 
+                    "item": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "category": {"type": "string", "description": "Food, Shop, Fish, Travel, Rent, Others"},
+                    "type": {"type": "string", "enum": ["Debit", "Credit"]},
                     "date": {"type": "string", "description": "YYYY-MM-DD HH:MM:SS"}
-                }, 
+                },
                 "required": ["item", "amount"]
             }
         }
     },
     {
-        "type": "function", 
+        "type": "function",
         "function": {
-            "name": "add_multiple_entries", 
-            "description": "Add multiple expenses", 
+            "name": "add_multiple_entries",
+            "description": "Add multiple expenses",
             "parameters": {
-                "type": "object", 
+                "type": "object",
                 "properties": {
                     "entries_list": {
-                        "type": "array", 
+                        "type": "array",
                         "items": {
-                            "type": "object", 
+                            "type": "object",
                             "properties": {
-                                "item": {"type": "string"}, 
-                                "amount": {"type": "number"}, 
-                                "category": {"type": "string"}, 
-                                "type": {"type": "string", "enum": ["Debit", "Credit"]}, 
+                                "item": {"type": "string"},
+                                "amount": {"type": "number"},
+                                "category": {"type": "string"},
+                                "type": {"type": "string", "enum": ["Debit", "Credit"]},
                                 "date": {"type": "string"}
-                            }, 
+                            },
                             "required": ["item", "amount"]
                         }
                     }
-                }, 
+                },
                 "required": ["entries_list"]
             }
         }
     },
     {
-        "type": "function", 
+        "type": "function",
         "function": {
-            "name": "add_debt_entry", 
-            "description": "Add money lent or borrowed to Debt Tracker", 
+            "name": "add_debt_entry",
+            "description": "Add money lent or borrowed to Debt Tracker",
             "parameters": {
-                "type": "object", 
+                "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Person name"}, 
-                    "type": {"type": "string", "enum": ["Lent (കൊടുത്തത്)", "Borrowed (വാങ്ങിയത്)"]}, 
-                    "amount": {"type": "number"}, 
+                    "name": {"type": "string", "description": "Person name"},
+                    "type": {"type": "string", "enum": ["Lent (കൊടുത്തത്)", "Borrowed (വാങ്ങിയത്)"]},
+                    "amount": {"type": "number"},
                     "date": {"type": "string"}
-                }, 
+                },
                 "required": ["name", "type", "amount"]
             }
         }
     }
 ]
 
-# --- 🔒 LOGIN SCREEN ---
+# --- 🔒 PUBLIC LOGIN SCREEN ---
 if not st.session_state.auth:
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
         st.markdown('<div class="login-card">', unsafe_allow_html=True)
-        st.subheader("🔐 PAICHI EXPENSES LOGIN")
-        u = st.selectbox("👤 Select User", ["faisal", "shabana", "admin"]).lower()
+        st.subheader("🔐 EXPENSE AI LOGIN")
+        u_input = st.text_input("👤 Username / Email", placeholder="Enter your name or email").strip().lower()
         pin = st.text_input("🔑 Enter 4-Digit PIN", type="password", max_chars=4)
-        custom_sheet_input = st.text_input(
-            "📄 User Sheet Web App URL (Demo/Test - Optional)",
-            value=st.session_state.user_sheet_url,
-            placeholder="https://script.google.com/macros/s/.../exec"
-        )
+        with st.expander("⚙️ Custom Google Sheet Connection (Optional)"):
+            custom_sheet_input = st.text_input(
+                "📄 User Sheet Web App URL",
+                value=st.session_state.user_sheet_url,
+                placeholder="https://script.google.com/macros/s/.../exec"
+            )
+            custom_csv_input = st.text_input(
+                "📊 User Sheet CSV URL",
+                value=st.session_state.user_sheet_csv_url,
+                placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"
+            )
         if st.button("UNLOCK APP 🔓"):
-            if USER_PINS.get(u) == pin:
-                st.session_state.user_sheet_url = custom_sheet_input.strip()
-                st.session_state.auth, st.session_state.user = True, u
-                st.rerun()
-            else: 
-                st.error("❌ Incorrect PIN!")
+            if not u_input:
+                st.error("❌ Please enter a username!")
+            elif len(pin) < 4:
+                st.error("❌ Please enter a 4-digit PIN!")
+            else:
+                accounts = st.session_state.user_accounts
+                if u_input not in accounts:
+                    accounts[u_input] = pin
+                    st.session_state.user_sheet_url = custom_sheet_input.strip()
+                    st.session_state.user_sheet_csv_url = custom_csv_input.strip()
+                    st.session_state.auth, st.session_state.user = True, u_input
+                    st.rerun()
+                elif accounts[u_input] == pin:
+                    st.session_state.user_sheet_url = custom_sheet_input.strip()
+                    st.session_state.user_sheet_csv_url = custom_csv_input.strip()
+                    st.session_state.auth, st.session_state.user = True, u_input
+                    st.rerun()
+                else:
+                    st.error("❌ Incorrect PIN!")
         st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-    df = load_data()
+    df = load_data(get_active_csv_url())
     t_in, t_out = (df['Credit'].sum(), df['Debit'].sum()) if not df.empty else (0.0, 0.0)
     bal = t_in - t_out
-    
-    if st.session_state.user != "shabana":
-        with st.sidebar.expander("⚙️ Settings"):
-            st.session_state.user_sheet_url = st.text_input(
-                "📄 Target Sheet Web App URL",
-                value=st.session_state.user_sheet_url,
-                placeholder="https://script.google.com/macros/s/.../exec"
-            ).strip()
-            st.session_state.custom_alert_text = st.text_area("Alert Message", value=st.session_state.custom_alert_text)
-            st.session_state.low_limit = st.number_input("Low Balance Limit (₹)", value=st.session_state.low_limit)
-    
-    if bal < st.session_state.low_limit:
-        st.markdown(f'<div class="alert-banner">⚠️ ബാലൻസ് കുറവാണ്: {st.session_state.custom_alert_text} (₹{bal:,.2f})!</div>', unsafe_allow_html=True)
 
-    st.markdown(f'<div class="balance-banner"><span style="font-size:22px; color:#E0B0FF; letter-spacing: 2px;">AVAILABLE BALANCE</span><br><span style="font-size:50px; color:#FFD700; font-family: monospace;">₹{bal:,.2f}</span></div>', unsafe_allow_html=True)
-    
-    menu = ["💰 Add Entry", "📅 Calendar", "📊 Report", "🔍 History", "🤝 Debt Tracker", "🤖 AI Chat", "🧠 My AI Buddy"]
-    if st.session_state.user != "shabana": menu.insert(0, "🏠 Dashboard")
+    with st.sidebar.expander("⚙️ Settings"):
+        st.session_state.user_sheet_url = st.text_input(
+            "📄 Target Sheet Web App URL",
+            value=st.session_state.user_sheet_url,
+            placeholder="https://script.google.com/macros/s/.../exec"
+        ).strip()
+        st.session_state.user_sheet_csv_url = st.text_input(
+            "📊 Target Sheet CSV URL",
+            value=st.session_state.user_sheet_csv_url,
+            placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"
+        ).strip()
+        st.session_state.custom_alert_text = st.text_area("Alert Message", value=st.session_state.custom_alert_text)
+        st.session_state.low_limit = st.number_input("Low Balance Limit (₹)", value=st.session_state.low_limit)
+
+    menu = ["🏠 Dashboard", "💰 Add Entry", "📅 Calendar", "📊 Report", "🔍 History", "🤝 Debt Tracker", "🤖 AI Chat", "🧠 My AI Buddy"]
     page = st.sidebar.radio("Menu", menu)
-    if st.sidebar.button("Logout"): 
+    if st.sidebar.button("Logout"):
         st.session_state.auth = False
         st.rerun()
 
     # --- DASHBOARD ---
-    if page == "🏠 Dashboard" and not df.empty:
+    if page == "🏠 Dashboard":
+        if bal < st.session_state.low_limit:
+            st.markdown(f'<div class="alert-banner">⚠️ ബാലൻസ് കുറവാണ്: {st.session_state.custom_alert_text} (₹{bal:,.2f})!</div>', unsafe_allow_html=True)
+
+        st.markdown(f'<div class="balance-banner"><span style="font-size:22px; color:#E0B0FF; letter-spacing: 2px;">AVAILABLE BALANCE</span><br><span style="font-size:50px; color:#FFD700; font-family: monospace;">₹{bal:,.2f}</span></div>', unsafe_allow_html=True)
         st.title("Financial Overview")
         st.markdown(f'<div class="glass-card"><h2 style="color:#00FF00;">Credit: ₹{t_in:,.2f}</h2><h2 style="color:#FF3131;">Debit: ₹{t_out:,.2f}</h2></div>', unsafe_allow_html=True)
-        
-        def extract_cat(x):
-            item_text = str(x).lower()
-            if any(w in item_text for w in ["food", "ഭക്ഷണം", "ചായ", "ഹോട്ടൽ", "ബിരിയാണി"]): return "Food"
-            elif any(w in item_text for w in ["shop", "കട", "സാധനങ്ങൾ", "സൂപ്പർമാർക്കറ്റ്"]): return "Shop"
-            elif any(w in item_text for w in ["fish", "മീൻ", "ഇറച്ചി", "ചിക്കൻ"]): return "Fish"
-            elif any(w in item_text for w in ["travel", "യാത്ര", "പെട്രോൾ", "വണ്ടി", "ടാക്സി"]): return "Travel"
-            elif any(w in item_text for w in ["rent", "വാടക", "റൂം"]): return "Rent"
-            return "Others"
-        df['Cat'] = df['Item'].apply(extract_cat)
-        cats = df.groupby('Cat')['Debit'].sum().to_dict()
-        cols = st.columns(3)
-        for idx, (c_name, c_amt) in enumerate(cats.items()):
-            if c_amt > 0:
-                with cols[idx % 3]: 
-                    st.markdown(f'<div class="category-box"><span style="color:#aaa;">Total {c_name}</span><br><span style="font-size:24px; color:#FFF;">₹{c_amt:,.2f}</span></div>', unsafe_allow_html=True)
+
+        if not df.empty and 'Item' in df.columns:
+            def extract_cat(x):
+                item_text = str(x).lower()
+                if any(w in item_text for w in ["food", "ഭക്ഷണം", "ചായ", "ഹോട്ടൽ", "ബിരിയാണി"]): return "Food"
+                elif any(w in item_text for w in ["shop", "കട", "സാധനങ്ങൾ", "സൂപ്പർമാർക്കറ്റ്"]): return "Shop"
+                elif any(w in item_text for w in ["fish", "മീൻ", "ഇറച്ചി", "ചിക്കൻ"]): return "Fish"
+                elif any(w in item_text for w in ["travel", "യാത്ര", "പെട്രോൾ", "വണ്ടി", "ടാക്സി"]): return "Travel"
+                elif any(w in item_text for w in ["rent", "വാടക", "റൂം"]): return "Rent"
+                return "Others"
+            df['Cat'] = df['Item'].apply(extract_cat)
+            cats = df.groupby('Cat')['Debit'].sum().to_dict()
+            cols = st.columns(3)
+            for idx, (c_name, c_amt) in enumerate(cats.items()):
+                if c_amt > 0:
+                    with cols[idx % 3]:
+                        st.markdown(f'<div class="category-box"><span style="color:#aaa;">Total {c_name}</span><br><span style="font-size:24px; color:#FFF;">₹{c_amt:,.2f}</span></div>', unsafe_allow_html=True)
 
     # --- ADD ENTRY ---
     elif page == "💰 Add Entry":
         st.title("Smart Voice Entry 🎙️")
         v_raw = speech_to_text(language='ml', key='voice_v9')
         v_cat, v_amt, v_desc, v_type = "Others", "", "", "Debit"
-        
+
         if v_raw:
             raw = v_raw.lower().replace('.', '').replace(',', '')
             nums = re.findall(r'\d+', raw)
@@ -358,86 +406,100 @@ else:
             am_str = st.text_input("Amount", value=str(v_amt))
             cat = st.selectbox("Category", ["Food", "Shop", "Fish", "Travel", "Rent", "Others"], index=["Food", "Shop", "Fish", "Travel", "Rent", "Others"].index(v_cat))
             ty = st.radio("Type", ["Debit", "Credit"], horizontal=True, index=0 if v_type == "Debit" else 1)
-            
+
             if st.form_submit_button("SAVE & NOTIFY"):
                 try:
                     am = float(am_str.strip().replace(',', ''))
                     if not st.session_state.entry_saved_flag:
                         target_url = get_active_web_app_url()
-                        payload = {"item": it, "amount": am, "category": cat, "type": ty, "date": datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S"), "sender": st.session_state.user.capitalize()}
-                        requests.post(target_url, json=payload, timeout=10)
-                        send_whatsapp_auto(f"✅ *Paichi Entry*\n📝 {it}\n💰 ₹{am}")
-                        
+                        payload = {
+                            "item": it,
+                            "amount": am,
+                            "category": cat,
+                            "type": ty,
+                            "date": datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S"),
+                            "sender": st.session_state.user.capitalize()
+                        }
+                        if target_url:
+                            requests.post(target_url, json=payload, timeout=10)
+                        send_whatsapp_auto(f"✅ *Expense Entry*\n📝 {it}\n💰 ₹{am}")
+
                         st.session_state.entry_saved_flag = True
                         st.success("Saved! ✅")
                         time.sleep(1)
                         st.session_state.entry_saved_flag = False
                         st.rerun()
-                except Exception as e: 
+                except Exception as e:
                     st.error(f"Error! Valid amount required. {e}")
 
     # --- CALENDAR ---
-    elif page == "📅 Calendar" and not df.empty:
+    elif page == "📅 Calendar":
         st.title("P&L Calendar View 📅")
-        df_cal = df.dropna(subset=['Date'])
-        summary = df_cal.groupby(df_cal['Date'].dt.strftime('%Y-%m-%d')).agg({'Debit': 'sum', 'Credit': 'sum'}).reset_index()
-        events = []
-        for _, row in summary.iterrows():
-            if row['Credit'] > 0: events.append({"title": f" +₹{row['Credit']:,.0f}", "start": row['Date'], "backgroundColor": "#198754"})
-            if row['Debit'] > 0: events.append({"title": f" -₹{row['Debit']:,.0f}", "start": row['Date'], "backgroundColor": "#dc3545"})
-        
-        cal_data = calendar(events=events, options={"headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth"}, "initialView": "dayGridMonth"}, key="pnl_calendar")
-        
-        if cal_data and cal_data.get("callback") == "eventClick":
-            event_data = cal_data.get("eventClick", {}).get("event", {})
-            dt_click = event_data.get("start", "").split("T")[0]
-            if dt_click:
-                st.markdown("---"); st.subheader(f"📋 Details for {pd.to_datetime(dt_click).strftime('%d %B %Y')}")
-                day_df = df_cal[df_cal['Date'].dt.strftime('%Y-%m-%d') == dt_click].copy()
-                if not day_df.empty:
-                    day_df['Date'] = day_df['Date'].dt.strftime('%d/%m/%Y')
-                    st.dataframe(day_df[['Date', 'Item', 'Debit', 'Credit']], use_container_width=True)
+        if df.empty:
+            st.info("No data available yet. Connect a CSV URL in Settings or add entries.")
+        else:
+            df_cal = df.dropna(subset=['Date'])
+            summary = df_cal.groupby(df_cal['Date'].dt.strftime('%Y-%m-%d')).agg({'Debit': 'sum', 'Credit': 'sum'}).reset_index()
+            events = []
+            for _, row in summary.iterrows():
+                if row['Credit'] > 0: events.append({"title": f" +₹{row['Credit']:,.0f}", "start": row['Date'], "backgroundColor": "#198754"})
+                if row['Debit'] > 0: events.append({"title": f" -₹{row['Debit']:,.0f}", "start": row['Date'], "backgroundColor": "#dc3545"})
+
+            cal_data = calendar(events=events, options={"headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth"}, "initialView": "dayGridMonth"}, key="pnl_calendar")
+
+            if cal_data and cal_data.get("callback") == "eventClick":
+                event_data = cal_data.get("eventClick", {}).get("event", {})
+                dt_click = event_data.get("start", "").split("T")[0]
+                if dt_click:
+                    st.markdown("---"); st.subheader(f"📋 Details for {pd.to_datetime(dt_click).strftime('%d %B %Y')}")
+                    day_df = df_cal[df_cal['Date'].dt.strftime('%Y-%m-%d') == dt_click].copy()
+                    if not day_df.empty:
+                        day_df['Date'] = day_df['Date'].dt.strftime('%d/%m/%Y')
+                        st.dataframe(day_df[['Date', 'Item', 'Debit', 'Credit']], use_container_width=True)
 
     # --- REPORT & HISTORY ---
-    elif (page == "📊 Report" or page == "🔍 History") and not df.empty:
-        df_rep = df[(df['Date'].dt.year == 2026) & (df['Date'].dt.month >= 4)].copy()
-        df_rep['Month'] = df_rep['Date'].dt.strftime('%B %Y')
-        months = df_rep.dropna(subset=['Month']).sort_values(by='Date', ascending=False)['Month'].unique()
-        
-        if len(months) == 0: 
-            st.warning("No data found!")
+    elif (page == "📊 Report" or page == "🔍 History"):
+        if df.empty:
+            st.info("No data available yet.")
         else:
-            sel_m = st.selectbox("Select Month", months)
-            m_df = df_rep[df_rep['Month'] == sel_m].copy()
-            m_deb, m_crd = m_df['Debit'].sum(), m_df['Credit'].sum()
-            
-            if page == "📊 Report":
-                st.title("Monthly Expense Analysis")
-                c1, c2, c3 = st.columns(3)
-                c1.markdown(f'<div class="glass-card"><h3 style="color:#00FF00;">Credit</h3><h1 style="color:#00FF00;">₹{m_crd:,.2f}</h1></div>', unsafe_allow_html=True)
-                c2.markdown(f'<div class="glass-card"><h3 style="color:#FF3131;">Expense</h3><h1 style="color:#FF3131;">₹{m_deb:,.2f}</h1></div>', unsafe_allow_html=True)
-                c3.markdown(f'<div class="glass-card"><h3 style="color:#FFD700;">Savings</h3><h1 style="color:#FFD700;">₹{m_crd - m_deb:,.2f}</h1></div>', unsafe_allow_html=True)
-                
-                m_df['Cat'] = m_df['Item'].apply(lambda x: x.split(':')[0] if ':' in str(x) else 'Others')
-                st.plotly_chart(px.pie(m_df[m_df['Debit'] > 0], values='Debit', names='Cat', hole=0.4), use_container_width=True)
+            df_rep = df.dropna(subset=['Date']).copy()
+            df_rep['Month'] = df_rep['Date'].dt.strftime('%B %Y')
+            months = df_rep.dropna(subset=['Month']).sort_values(by='Date', ascending=False)['Month'].unique()
 
-            clean_df = m_df.drop(columns=['Month'], errors='ignore')
-            clean_df['Date'] = clean_df['Date'].dt.strftime('%d/%m/%Y')
-            st.dataframe(clean_df.iloc[::-1], use_container_width=True)
+            if len(months) == 0:
+                st.warning("No data found!")
+            else:
+                sel_m = st.selectbox("Select Month", months)
+                m_df = df_rep[df_rep['Month'] == sel_m].copy()
+                m_deb, m_crd = m_df['Debit'].sum(), m_df['Credit'].sum()
 
-            if page == "📊 Report":
-                pdf_bytes = create_pdf(clean_df)
-                if pdf_bytes:
-                    st.download_button(
-                        label="📄 Download PDF Report",
-                        data=pdf_bytes,
-                        file_name=f"Paichi_Report_{sel_m}.pdf",
-                        mime="application/pdf"
-                    )
+                if page == "📊 Report":
+                    st.title("Monthly Expense Analysis")
+                    c1, c2, c3 = st.columns(3)
+                    c1.markdown(f'<div class="glass-card"><h3 style="color:#00FF00;">Credit</h3><h1 style="color:#00FF00;">₹{m_crd:,.2f}</h1></div>', unsafe_allow_html=True)
+                    c2.markdown(f'<div class="glass-card"><h3 style="color:#FF3131;">Expense</h3><h1 style="color:#FF3131;">₹{m_deb:,.2f}</h1></div>', unsafe_allow_html=True)
+                    c3.markdown(f'<div class="glass-card"><h3 style="color:#FFD700;">Savings</h3><h1 style="color:#FFD700;">₹{m_crd - m_deb:,.2f}</h1></div>', unsafe_allow_html=True)
+
+                    m_df['Cat'] = m_df['Item'].apply(lambda x: x.split(':')[0] if ':' in str(x) else 'Others')
+                    st.plotly_chart(px.pie(m_df[m_df['Debit'] > 0], values='Debit', names='Cat', hole=0.4), use_container_width=True)
+
+                clean_df = m_df.drop(columns=['Month'], errors='ignore')
+                clean_df['Date'] = clean_df['Date'].dt.strftime('%d/%m/%Y')
+                st.dataframe(clean_df.iloc[::-1], use_container_width=True)
+
+                if page == "📊 Report":
+                    pdf_bytes = create_pdf(clean_df)
+                    if pdf_bytes:
+                        st.download_button(
+                            label="📄 Download PDF Report",
+                            data=pdf_bytes,
+                            file_name=f"Expense_Report_{sel_m}.pdf",
+                            mime="application/pdf"
+                        )
 
     # --- DEBT TRACKER ---
     elif page == "🤝 Debt Tracker":
-        st.title("🤝 Debt Tracker (കടം കണക്കുകൾ - Permanent)")
+        st.title("🤝 Debt Tracker (കടം കണക്കുകൾ)")
         df_debts = load_debts_data()
 
         tab1, tab2, tab3 = st.tabs(["📋 View All Debts", "➕ Add New Debt", "⚙️ Settlement History"])
@@ -468,12 +530,13 @@ else:
                         c2.write(f"{debt['Type']}")
                         c3.write(f"**₹{debt['Amount']:,.2f}**")
                         c4.write(f"{str(debt['Date']).split(' ')[0]}")
-                        
+
                         if c5.button("✅ Settle", key=f"settle_cloud_{debt['ID']}"):
                             try:
                                 target_url = get_active_web_app_url()
                                 payload = {"action": "settle_debt", "id": debt['ID']}
-                                requests.post(target_url, json=payload, timeout=10)
+                                if target_url:
+                                    requests.post(target_url, json=payload, timeout=10)
                                 st.success(f"{debt['Name']}-ന്റെ കണക്ക് തീർപ്പാക്കി!")
                                 time.sleep(1)
                                 st.rerun()
@@ -491,7 +554,7 @@ else:
 
                 if st.form_submit_button("SAVE TO GOOGLE SHEET 💾"):
                     if not d_name.strip():
-                        st.error("தயவுசெய்து പേര് നൽകുക!")
+                        st.error("ദയവായി പേര് നൽകുക!")
                     else:
                         try:
                             target_url = get_active_web_app_url()
@@ -503,10 +566,11 @@ else:
                                 "date": str(d_date),
                                 "sender": st.session_state.user.capitalize()
                             }
-                            requests.post(target_url, json=payload, timeout=10)
+                            if target_url:
+                                requests.post(target_url, json=payload, timeout=10)
                             send_whatsapp_auto(f"🤝 *New Debt Saved*\n👤 Person: {d_name}\n📌 Type: {d_type}\n💰 Amt: ₹{d_amount}")
 
-                            st.success("Debt successfully saved to Google Sheet! ✅")
+                            st.success("Debt saved successfully! ✅")
                             time.sleep(1)
                             st.rerun()
                         except Exception as e:
@@ -534,19 +598,19 @@ else:
             with st.spinner("ആലോചിക്കുന്നു..."):
                 try:
                     client = Groq(api_key=GROQ_API_KEY)
-                    system_prompt = "You are a helpful personal AI assistant for a 51-year-old Malayali. Answer their questions in Malayalam in a friendly way."
+                    system_prompt = "You are a helpful personal AI assistant. Answer questions clearly and in a friendly way."
                     messages = [{"role": "system", "content": system_prompt}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.buddy_messages[-4:]]
                     response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=messages, max_tokens=1024)
                     ai_reply = response.choices[0].message.content
                     st.session_state.buddy_messages.append({"role": "assistant", "content": ai_reply})
                     with st.chat_message("assistant"): st.markdown(ai_reply)
-                except Exception as e: 
+                except Exception as e:
                     st.error(f"Error: {e}")
 
     # --- AI CHAT (AI Agent with Confirmation & Loop Fixed) ---
     elif page == "🤖 AI Chat":
         st.title("🤖 AI Agent & Assistant")
-        
+
         if "messages" not in st.session_state: st.session_state.messages = []
 
         if st.session_state.pending_entry:
@@ -554,20 +618,20 @@ else:
             col1, col2 = st.columns(2)
             if col1.button("✅ Yes, Save it", key="save_entry_btn"):
                 entry_data = st.session_state.pending_entry
-                st.session_state.pending_entry = None  
-                
+                st.session_state.pending_entry = None
+
                 result = add_new_entry(
-                    item=entry_data['item'], amount=entry_data['amount'], 
+                    item=entry_data['item'], amount=entry_data['amount'],
                     category=entry_data['category'], type=entry_data['type'], entry_date=entry_data['date']
                 )
-                ai_msg = f"✅ ചേട്ടാ, {entry_data['item']}-ന് ₹{entry_data['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!" if "Success" in result else f"❌ {result}"
+                ai_msg = f"✅ {entry_data['item']}-ന് ₹{entry_data['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!" if "Success" in result else f"❌ {result}"
                 st.session_state.messages.append({"role": "assistant", "content": ai_msg})
                 st.session_state.last_processed_prompt = None
                 st.rerun()
-                
+
             if col2.button("❌ No, Cancel", key="cancel_entry_btn"):
                 st.session_state.pending_entry = None
-                st.session_state.messages.append({"role": "assistant", "content": "ശരി ചേട്ടാ, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല."})
+                st.session_state.messages.append({"role": "assistant", "content": "ശരി, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല."})
                 st.session_state.last_processed_prompt = None
                 st.rerun()
 
@@ -581,17 +645,17 @@ else:
         if final_prompt:
             if st.session_state.get("last_processed_prompt") != final_prompt:
                 st.session_state.last_processed_prompt = final_prompt
-                
+
                 if final_prompt.lower().strip() in ["yes", "y", "yep", "ya", "അതെ", "ശരി"] and st.session_state.pending_entry:
                     entry_data = st.session_state.pending_entry
                     st.session_state.messages.append({"role": "user", "content": final_prompt})
                     st.session_state.pending_entry = None
-                    
+
                     result = add_new_entry(
-                        item=entry_data['item'], amount=entry_data['amount'], 
+                        item=entry_data['item'], amount=entry_data['amount'],
                         category=entry_data['category'], type=entry_data['type'], entry_date=entry_data['date']
                     )
-                    ai_msg = f"✅ ചേട്ടാ, {entry_data['item']}-ന് ₹{entry_data['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!" if "Success" in result else f"❌ {result}"
+                    ai_msg = f"✅ {entry_data['item']}-ന് ₹{entry_data['amount']} എൻട്രി ഇട്ടിട്ടുണ്ട്!" if "Success" in result else f"❌ {result}"
                     st.session_state.messages.append({"role": "assistant", "content": ai_msg})
                     st.session_state.last_processed_prompt = None
                     st.rerun()
@@ -599,7 +663,7 @@ else:
                 elif final_prompt.lower().strip() in ["no", "n", "nope", "അല്ല", "വേണ്ട"] and st.session_state.pending_entry:
                     st.session_state.messages.append({"role": "user", "content": final_prompt})
                     st.session_state.pending_entry = None
-                    st.session_state.messages.append({"role": "assistant", "content": "ശരി ചേട്ടാ, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല."})
+                    st.session_state.messages.append({"role": "assistant", "content": "ശരി, ഞാൻ എൻട്രി ഇട്ടിട്ടില്ല."})
                     st.session_state.last_processed_prompt = None
                     st.rerun()
 
@@ -612,7 +676,7 @@ else:
                             client = Groq(api_key=GROQ_API_KEY)
                             gst_now = datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
                             system_instruction = f"നീ ഒരു ഫിനാൻസ് AI അസിസ്റ്റന്റാണ്. സമയം: {gst_now} (GST). ബാലൻസ്: {bal} Rs. പണം കൊടുത്തതോ വാങ്ങിയതോ ആണെങ്കിൽ 'add_debt_entry' ടൂൾ ഉപയോഗിക്കുക."
-                            
+
                             messages_for_api = [{"role": "system", "content": system_instruction}] + [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
 
                             response = client.chat.completions.create(
@@ -620,7 +684,7 @@ else:
                             )
 
                             response_message = response.choices[0].message
-                            
+
                             if response_message.tool_calls:
                                 for tool_call in response_message.tool_calls:
                                     if tool_call.function.name == 'add_new_entry':
@@ -650,11 +714,11 @@ else:
                                         d_date = args.get("date") or datetime.now(GST).strftime("%Y-%m-%d")
 
                                         result = add_debt_via_ai(d_name, d_type, d_amount, d_date)
-                                        ai_msg = f"✅ ചേട്ടാ, **{d_name}**-ന് ₹{d_amount} ({d_type}) Debt Tracker-ൽ സേവ് ചെയ്തിട്ടുണ്ട്!" if "Success" in result else f"❌ {result}"
+                                        ai_msg = f"✅ **{d_name}**-ന് ₹{d_amount} ({d_type}) Debt Tracker-ൽ സേവ് ചെയ്തിട്ടുണ്ട്!" if "Success" in result else f"❌ {result}"
                                         st.session_state.messages.append({"role": "assistant", "content": ai_msg})
                                         st.session_state.last_processed_prompt = None
                                         st.rerun()
-                                        
+
                             elif response_message.content:
                                 ai_msg = response_message.content
                                 st.session_state.messages.append({"role": "assistant", "content": ai_msg})
