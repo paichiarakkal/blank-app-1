@@ -328,59 +328,111 @@ tools = [
     }
 ]
 
-# --- 🔒 PUBLIC LOGIN SCREEN (Bank-style custom password + Confirm Password) ---
+# --- 🔒 PUBLIC SIGN UP, LOGIN & RESET PASSWORD SCREEN ---
 if not st.session_state.auth:
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
         st.markdown('<div class="login-card">', unsafe_allow_html=True)
-        st.subheader("🔐 EXPENSE AI LOGIN")
-        u_input = st.text_input("👤 Username / Email", placeholder="Enter your username or email").strip().lower()
-        existing_profile = st.session_state.user_profiles.get(u_input, {})
-        password = st.text_input("🔑 Password", type="password", placeholder="Create or enter your password")
-        confirm_password = st.text_input("🔒 Confirm Password", type="password", placeholder="Re-enter password for new account")
+        st.subheader("🔐 PAICHI EXPENSES")
 
-        with st.expander("⚙️ Custom Google Sheet Connection (Optional)"):
-            custom_sheet_input = st.text_input(
-                "📄 User Sheet Web App URL",
-                value=existing_profile.get("sheet_url", st.session_state.user_sheet_url),
-                placeholder="https://script.google.com/macros/s/.../exec"
-            )
-            custom_csv_input = st.text_input(
-                "📊 User Sheet CSV URL",
-                value=existing_profile.get("csv_url", st.session_state.user_sheet_csv_url),
-                placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"
-            )
+        mode_tab1, mode_tab2 = st.tabs(["🔑 Login", "📝 Sign Up"])
 
-        if st.button("UNLOCK APP 🔓"):
-            if not u_input:
-                st.error("❌ Please enter a username!")
-            elif not password:
-                st.error("❌ Please enter a password!")
-            else:
-                pwd_hash = hash_password(password)
+        # --- TAB 1: LOGIN + PASSWORD RESET ---
+        with mode_tab1:
+            l_user = st.text_input("👤 Username / Email", key="login_user", placeholder="Enter your username or email").strip().lower()
+            l_pass = st.text_input("🔑 Password", type="password", key="login_pass", placeholder="Enter your password")
+            existing_prof = st.session_state.user_profiles.get(l_user, {})
+
+            with st.expander("📄 My Google Sheet Links (Optional)"):
+                l_web = st.text_input(
+                    "Sheet Web App URL",
+                    value=existing_prof.get("sheet_url", st.session_state.user_sheet_url),
+                    key="login_web_url",
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                )
+                l_csv = st.text_input(
+                    "Sheet CSV URL",
+                    value=existing_prof.get("csv_url", st.session_state.user_sheet_csv_url),
+                    key="login_csv_url",
+                    placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"
+                )
+
+            if st.button("LOGIN 🔓", key="btn_login"):
                 accounts = st.session_state.user_accounts
-
-                if u_input not in accounts:
-                    if not confirm_password:
-                        st.error("❌ Please confirm your password!")
-                    elif password != confirm_password:
-                        st.error("❌ Passwords do not match!")
-                    else:
-                        accounts[u_input] = pwd_hash
-                        save_user_sheet_links(u_input, custom_sheet_input, custom_csv_input)
-                        refresh_user_sheet_cache()
-                        st.session_state.auth, st.session_state.user = True, u_input
-                        st.rerun()
+                if not l_user:
+                    st.error("❌ Please enter your username!")
+                elif not l_pass:
+                    st.error("❌ Please enter your password!")
+                elif l_user not in accounts:
+                    st.error("❌ Account not found! Please go to Sign Up tab first.")
+                elif accounts[l_user] == hash_password(l_pass):
+                    save_user_sheet_links(l_user, l_web, l_csv)
+                    refresh_user_sheet_cache()
+                    st.session_state.auth, st.session_state.user = True, l_user
+                    st.rerun()
                 else:
-                    if confirm_password and password != confirm_password:
-                        st.error("❌ Passwords do not match!")
-                    elif accounts[u_input] == pwd_hash:
-                        save_user_sheet_links(u_input, custom_sheet_input, custom_csv_input)
-                        refresh_user_sheet_cache()
-                        st.session_state.auth, st.session_state.user = True, u_input
-                        st.rerun()
+                    st.error("❌ Incorrect password!")
+
+            with st.expander("🔄 Forgot / Reset Password"):
+                r_user = st.text_input("👤 Existing Username / Email", key="reset_user", placeholder="Enter your registered username").strip().lower()
+                r_new_pass = st.text_input("🔑 New Password", type="password", key="reset_new_pass", placeholder="Enter new password")
+                r_confirm_pass = st.text_input("🔒 Confirm New Password", type="password", key="reset_confirm_pass", placeholder="Re-enter new password")
+
+                if st.button("RESET PASSWORD 🔁", key="btn_reset_pass"):
+                    accounts = st.session_state.user_accounts
+                    if not r_user:
+                        st.error("❌ Please enter your username!")
+                    elif r_user not in accounts:
+                        st.error("❌ No account found with this username!")
+                    elif not r_new_pass:
+                        st.error("❌ Please enter a new password!")
+                    elif not r_confirm_pass:
+                        st.error("❌ Please confirm your new password!")
+                    elif r_new_pass != r_confirm_pass:
+                        st.error("❌ New passwords do not match!")
                     else:
-                        st.error("❌ Incorrect Password!")
+                        accounts[r_user] = hash_password(r_new_pass)
+                        st.success("✅ Password reset successful! You can log in now.")
+
+        # --- TAB 2: SIGN UP ---
+        with mode_tab2:
+            s_user = st.text_input("👤 Choose Username / Email", key="signup_user", placeholder="Create a username or email").strip().lower()
+            s_pass = st.text_input("🔑 Create Password", type="password", key="signup_pass", placeholder="Create your own password")
+            s_confirm = st.text_input("🔒 Confirm Password", type="password", key="signup_confirm", placeholder="Re-enter your password")
+
+            with st.expander("📄 My Google Sheet Links (Optional)"):
+                s_web = st.text_input(
+                    "Sheet Web App URL",
+                    value="",
+                    key="signup_web_url",
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                )
+                s_csv = st.text_input(
+                    "Sheet CSV URL",
+                    value="",
+                    key="signup_csv_url",
+                    placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"
+                )
+
+            if st.button("CREATE ACCOUNT ✨", key="btn_signup"):
+                accounts = st.session_state.user_accounts
+                if not s_user:
+                    st.error("❌ Please enter a username!")
+                elif s_user in accounts:
+                    st.error("❌ This username already exists! Please use Login.")
+                elif not s_pass:
+                    st.error("❌ Please create a password!")
+                elif not s_confirm:
+                    st.error("❌ Please confirm your password!")
+                elif s_pass != s_confirm:
+                    st.error("❌ Passwords do not match!")
+                else:
+                    accounts[s_user] = hash_password(s_pass)
+                    save_user_sheet_links(s_user, s_web, s_csv)
+                    refresh_user_sheet_cache()
+                    st.session_state.auth, st.session_state.user = True, s_user
+                    st.rerun()
+
         st.markdown('</div>', unsafe_allow_html=True)
 
 else:
