@@ -11,6 +11,9 @@ import re
 import json
 import time
 import hashlib
+import hmac
+import base64
+import sqlite3
 from groq import Groq
 from streamlit_calendar import calendar
 from twilio.rest import Client
@@ -22,11 +25,110 @@ st.set_page_config(page_title="PAICHI EXPENSES", layout="wide")
 WA_PHONE = st.secrets.get("DEFAULT_WA_PHONE", "")
 BG_IMAGE_URL = "https://raw.githubusercontent.com/paichiarakkal/paichiarakkal/main/profile.jpg"
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
+SECRET_KEY = st.secrets.get("SESSION_SECRET_KEY", "paichi_expenses_secure_key_2026")
+DB_FILE = "paichi_users.db"
 
 # --- TIMEZONE SETUP (GST - Dubai Time) ---
 GST = timezone(timedelta(hours=4))
 
 st_autorefresh(interval=60000, key="auto_refresh")
+
+# ============================================
+# 🗄️ DATABASE SETUP (SQLite for Multi-User)
+# ============================================
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password_hash TEXT NOT NULL,
+            sheet_url TEXT DEFAULT '',
+            csv_url TEXT DEFAULT ''
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def hash_password(pwd: str) -> str:
+    return hashlib.sha256(pwd.encode("utf-8")).hexdigest()
+
+def db_get_user(username: str):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT username, password_hash, sheet_url, csv_url FROM users WHERE username = ?", (username.strip().lower(),))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {"username": row[0], "password_hash": row[1], "sheet_url": row[2], "csv_url": row[3]}
+    return None
+
+def db_create_user(username: str, password: str, sheet_url: str = "", csv_url: str = ""):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO users (username, password_hash, sheet_url, csv_url) VALUES (?, ?, ?, ?)",
+        (username.strip().lower(), hash_password(password), sheet_url.strip(), csv_url.strip())
+    )
+    conn.commit()
+    conn.close()
+
+def db_update_password(username: str, new_password: str):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (hash_password(new_password), username.strip().lower()))
+    conn.commit()
+    conn.close()
+
+def db_update_links(username: str, sheet_url: str, csv_url: str):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE users SET sheet_url = ?, csv_url = ? WHERE username = ?", (sheet_url.strip(), csv_url.strip(), username.strip().lower()))
+    conn.commit()
+    conn.close()
+
+# ============================================
+# 🔐 SIGNED TOKEN SESSION (Query Params)
+# ============================================
+def create_session_token(username: str) -> str:
+    u = username.strip().lower()
+    sig = hmac.new(SECRET_KEY.encode("utf-8"), u.encode("utf-8"), hashlib.sha256).hexdigest()[:24]
+    raw = f"{u}:{sig}".encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("utf-8")
+
+def verify_session_token(token: str):
+    try:
+        decoded = base64.urlsafe_b64decode(token.encode("utf-8")).decode("utf-8")
+        u, sig = decoded.split(":", 1)
+        expected_sig = hmac.new(SECRET_KEY.encode("utf-8"), u.encode("utf-8"), hashlib.sha256).hexdigest()[:24]
+        if hmac.compare_digest(sig, expected_sig):
+            return u
+    except Exception:
+        pass
+    return None
+
+def restore_session_from_url():
+    if not st.session_state.get("auth", False):
+        token = st.query_params.get("session", "")
+        if token:
+            valid_user = verify_session_token(token)
+            if valid_user and db_get_user(valid_user):
+                st.session_state.auth = True
+                st.session_state.user = valid_user
+
+def set_persistent_login(username: str):
+    u = username.strip().lower()
+    st.session_state.auth = True
+    st.session_state.user = u
+    st.query_params["session"] = create_session_token(u)
+
+def clear_persistent_login():
+    st.session_state.auth = False
+    st.session_state.user = ""
+    if "session" in st.query_params:
+        del st.query_params["session"]
 
 # ============================================
 # 🎨 3D GLASSMORPHISM CSS
@@ -63,8 +165,6 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 if 'auth' not in st.session_state: st.session_state.auth, st.session_state.user = False, ""
-if 'user_accounts' not in st.session_state: st.session_state.user_accounts = {}
-if 'user_profiles' not in st.session_state: st.session_state.user_profiles = {}
 if 'custom_alert_text' not in st.session_state: st.session_state.custom_alert_text = "Low balance alert"
 if 'low_limit' not in st.session_state: st.session_state.low_limit = 6000
 if "last_processed_prompt" not in st.session_state: st.session_state.last_processed_prompt = None
@@ -73,43 +173,23 @@ if "entry_saved_flag" not in st.session_state: st.session_state.entry_saved_flag
 if "user_sheet_url" not in st.session_state: st.session_state.user_sheet_url = ""
 if "user_sheet_csv_url" not in st.session_state: st.session_state.user_sheet_csv_url = ""
 
+# Restore login session automatically if URL token is valid
+restore_session_from_url()
+
 # --- HELPER FUNCTIONS ---
-def hash_password(pwd: str) -> str:
-    return hashlib.sha256(pwd.encode("utf-8")).hexdigest()
-
-def save_user_sheet_links(username: str, web_app_url: str, csv_url: str):
-    u_key = (username or "").strip().lower()
-    clean_web = (web_app_url or "").strip()
-    clean_csv = (csv_url or "").strip()
-    st.session_state.user_sheet_url = clean_web
-    st.session_state.user_sheet_csv_url = clean_csv
-    if u_key:
-        profiles = st.session_state.user_profiles
-        existing = profiles.get(u_key, {})
-        profiles[u_key] = {
-            "sheet_url": clean_web if clean_web else existing.get("sheet_url", ""),
-            "csv_url": clean_csv if clean_csv else existing.get("csv_url", "")
-        }
-        st.session_state.user_sheet_url = profiles[u_key]["sheet_url"]
-        st.session_state.user_sheet_csv_url = profiles[u_key]["csv_url"]
-
 def sync_active_user_profile(username: str):
-    u_key = (username or "").strip().lower()
-    profile = st.session_state.user_profiles.get(u_key, {})
-    st.session_state.user_sheet_url = profile.get("sheet_url", "")
-    st.session_state.user_sheet_csv_url = profile.get("csv_url", "")
+    prof = db_get_user(username)
+    if prof:
+        st.session_state.user_sheet_url = prof.get("sheet_url", "")
+        st.session_state.user_sheet_csv_url = prof.get("csv_url", "")
 
 def get_active_web_app_url():
-    u_key = st.session_state.get("user", "").strip().lower()
-    profile_url = st.session_state.user_profiles.get(u_key, {}).get("sheet_url", "").strip()
-    session_url = st.session_state.get("user_sheet_url", "").strip()
-    return session_url or profile_url
+    prof = db_get_user(st.session_state.get("user", ""))
+    return (prof.get("sheet_url", "") if prof else st.session_state.get("user_sheet_url", "")).strip()
 
 def get_active_csv_url():
-    u_key = st.session_state.get("user", "").strip().lower()
-    profile_csv = st.session_state.user_profiles.get(u_key, {}).get("csv_url", "").strip()
-    session_csv = st.session_state.get("user_sheet_csv_url", "").strip()
-    return session_csv or profile_csv
+    prof = db_get_user(st.session_state.get("user", ""))
+    return (prof.get("csv_url", "") if prof else st.session_state.get("user_sheet_csv_url", "")).strip()
 
 def send_whatsapp_auto(msg):
     try:
@@ -202,8 +282,7 @@ def add_new_entry(item, amount, category="Others", type="Debit", entry_date=None
             "amount": amount,
             "category": category,
             "type": type,
-            "date": entry_date,
-            "sender": st.session_state.user.capitalize()
+            "date": entry_date
         }
         if target_url:
             requests.post(target_url, json=payload, timeout=10)
@@ -228,8 +307,7 @@ def add_multiple_entries(entries_list):
                 "amount": amount,
                 "category": category,
                 "type": entry_type,
-                "date": entry_date,
-                "sender": st.session_state.user.capitalize()
+                "date": entry_date
             }
             if target_url:
                 requests.post(target_url, json=payload, timeout=10)
@@ -252,8 +330,7 @@ def add_debt_via_ai(name, type, amount, date=None):
             "name": name,
             "type": type,
             "amount": amount,
-            "date": date,
-            "sender": st.session_state.user.capitalize()
+            "date": date
         }
         if target_url:
             requests.post(target_url, json=payload, timeout=10)
@@ -341,37 +418,39 @@ if not st.session_state.auth:
         with mode_tab1:
             l_user = st.text_input("👤 Username / Email", key="login_user", placeholder="Enter your username or email").strip().lower()
             l_pass = st.text_input("🔑 Password", type="password", key="login_pass", placeholder="Enter your password")
-            existing_prof = st.session_state.user_profiles.get(l_user, {})
+            existing_prof = db_get_user(l_user) if l_user else None
 
             with st.expander("📄 My Google Sheet Links (Optional)"):
                 l_web = st.text_input(
                     "Sheet Web App URL",
-                    value=existing_prof.get("sheet_url", st.session_state.user_sheet_url),
+                    value=(existing_prof.get("sheet_url", "") if existing_prof else ""),
                     key="login_web_url",
                     placeholder="https://script.google.com/macros/s/.../exec"
                 )
                 l_csv = st.text_input(
                     "Sheet CSV URL",
-                    value=existing_prof.get("csv_url", st.session_state.user_sheet_csv_url),
+                    value=(existing_prof.get("csv_url", "") if existing_prof else ""),
                     key="login_csv_url",
                     placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"
                 )
 
             if st.button("LOGIN 🔓", key="btn_login"):
-                accounts = st.session_state.user_accounts
+                user_rec = db_get_user(l_user)
                 if not l_user:
-                    st.error("❌ Please enter your username!")
+                    st.error("❌ ദയവായി നിങ്ങളുടെ യൂസർനെയിം നൽകുക!")
                 elif not l_pass:
-                    st.error("❌ Please enter your password!")
-                elif l_user not in accounts:
-                    st.error("❌ Account not found! Please go to Sign Up tab first.")
-                elif accounts[l_user] == hash_password(l_pass):
-                    save_user_sheet_links(l_user, l_web, l_csv)
+                    st.error("❌ ദയവായി പാസ്‌വേഡ് നൽകുക!")
+                elif not user_rec:
+                    st.error("❌ അക്കൗണ്ട് കണ്ടെത്താനായില്ല! ആദ്യം Sign Up ടാബിൽ അക്കൗണ്ട് തുടങ്ങുക.")
+                elif user_rec["password_hash"] == hash_password(l_pass):
+                    final_web = l_web.strip() if l_web.strip() else user_rec.get("sheet_url", "")
+                    final_csv = l_csv.strip() if l_csv.strip() else user_rec.get("csv_url", "")
+                    db_update_links(l_user, final_web, final_csv)
                     refresh_user_sheet_cache()
-                    st.session_state.auth, st.session_state.user = True, l_user
+                    set_persistent_login(l_user)
                     st.rerun()
                 else:
-                    st.error("❌ Incorrect password!")
+                    st.error("❌ പാസ്‌വേഡ് തെറ്റാണ്!")
 
             with st.expander("🔄 Forgot / Reset Password"):
                 r_user = st.text_input("👤 Existing Username / Email", key="reset_user", placeholder="Enter your registered username").strip().lower()
@@ -379,20 +458,17 @@ if not st.session_state.auth:
                 r_confirm_pass = st.text_input("🔒 Confirm New Password", type="password", key="reset_confirm_pass", placeholder="Re-enter new password")
 
                 if st.button("RESET PASSWORD 🔁", key="btn_reset_pass"):
-                    accounts = st.session_state.user_accounts
                     if not r_user:
-                        st.error("❌ Please enter your username!")
-                    elif r_user not in accounts:
-                        st.error("❌ No account found with this username!")
+                        st.error("❌ ദയവായി യൂസർനെയിം നൽകുക!")
+                    elif not db_get_user(r_user):
+                        st.error("❌ ഈ യൂസർനെയിമിൽ അക്കൗണ്ട് ഇല്ല!")
                     elif not r_new_pass:
-                        st.error("❌ Please enter a new password!")
-                    elif not r_confirm_pass:
-                        st.error("❌ Please confirm your new password!")
+                        st.error("❌ പുതിയ പാസ്‌വേഡ് നൽകുക!")
                     elif r_new_pass != r_confirm_pass:
-                        st.error("❌ New passwords do not match!")
+                        st.error("❌ രണ്ട് പാസ്‌വേഡുകളും ഒരുപോലെയല്ല!")
                     else:
-                        accounts[r_user] = hash_password(r_new_pass)
-                        st.success("✅ Password reset successful! You can log in now.")
+                        db_update_password(r_user, r_new_pass)
+                        st.success("✅ പാസ്‌വേഡ് വിജയകരമായി മാറ്റി! ഇനി ലോഗിൻ ചെയ്യാം.")
 
         # --- TAB 2: SIGN UP ---
         with mode_tab2:
@@ -415,22 +491,18 @@ if not st.session_state.auth:
                 )
 
             if st.button("CREATE ACCOUNT ✨", key="btn_signup"):
-                accounts = st.session_state.user_accounts
                 if not s_user:
-                    st.error("❌ Please enter a username!")
-                elif s_user in accounts:
-                    st.error("❌ This username already exists! Please use Login.")
+                    st.error("❌ ദയവായി ഒരു യൂസർനെയിം നൽകുക!")
+                elif db_get_user(s_user):
+                    st.error("❌ ഈ യൂസർനെയിം നിലവിലുണ്ട്! Login ടാബ് ഉപയോഗിക്കുക.")
                 elif not s_pass:
-                    st.error("❌ Please create a password!")
-                elif not s_confirm:
-                    st.error("❌ Please confirm your password!")
+                    st.error("❌ ദയവായി പാസ്‌വേഡ് നൽകുക!")
                 elif s_pass != s_confirm:
-                    st.error("❌ Passwords do not match!")
+                    st.error("❌ രണ്ട് പാസ്‌വേഡുകളും ഒരുപോലെയല്ല!")
                 else:
-                    accounts[s_user] = hash_password(s_pass)
-                    save_user_sheet_links(s_user, s_web, s_csv)
+                    db_create_user(s_user, s_pass, s_web, s_csv)
                     refresh_user_sheet_cache()
-                    st.session_state.auth, st.session_state.user = True, s_user
+                    set_persistent_login(s_user)
                     st.rerun()
 
         st.markdown('</div>', unsafe_allow_html=True)
@@ -455,7 +527,7 @@ else:
             placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"
         ).strip()
         if updated_web != active_web or updated_csv != active_csv:
-            save_user_sheet_links(st.session_state.user, updated_web, updated_csv)
+            db_update_links(st.session_state.user, updated_web, updated_csv)
             refresh_user_sheet_cache()
             st.rerun()
 
@@ -469,7 +541,7 @@ else:
     menu = ["🏠 Dashboard", "💰 Add Entry", "📅 Calendar", "📊 Report", "🔍 History", "🤝 Debt Tracker", "🤖 AI Chat", "🧠 My AI Buddy"]
     page = st.sidebar.radio("Menu", menu)
     if st.sidebar.button("Logout"):
-        st.session_state.auth = False
+        clear_persistent_login()
         st.rerun()
 
     # --- DASHBOARD ---
@@ -533,8 +605,7 @@ else:
                             "amount": am,
                             "category": cat,
                             "type": ty,
-                            "date": datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S"),
-                            "sender": st.session_state.user.capitalize()
+                            "date": datetime.now(GST).strftime("%Y-%m-%d %H:%M:%S")
                         }
                         if target_url:
                             requests.post(target_url, json=payload, timeout=10)
@@ -681,8 +752,7 @@ else:
                                 "name": d_name.strip(),
                                 "type": d_type,
                                 "amount": d_amount,
-                                "date": str(d_date),
-                                "sender": st.session_state.user.capitalize()
+                                "date": str(d_date)
                             }
                             if target_url:
                                 requests.post(target_url, json=payload, timeout=10)
